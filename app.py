@@ -29,11 +29,8 @@ class FabricStudioAPI:
 
     def login(self):
         """Authenticate and obtain session + CSRF tokens."""
-        # First request to get initial cookies
         self.session.get(f"{self.base_url}/api/v1/session/check")
-        # Extract CSRF token from cookies
         self._update_csrf()
-        # Login
         resp = self.session.post(
             f"{self.base_url}/api/v1/session/open",
             json={"username": self.username, "password": self.password},
@@ -49,10 +46,10 @@ class FabricStudioAPI:
     def _update_csrf(self):
         """Extract CSRF token from cookies."""
         for name, value in self.session.cookies.items():
-            if "csrftoken" in name and not name.endswith("-csrftoken"):
+            if name == "fortipoc-csrftoken":
                 self.csrf_token = value
                 break
-            if name == "fortipoc-csrftoken":
+            if "csrftoken" in name:
                 self.csrf_token = value
 
     def _headers(self):
@@ -63,7 +60,7 @@ class FabricStudioAPI:
         return headers
 
     def get(self, endpoint, params=None):
-        """GET request to API."""
+        """GET request to API. params can be a list of tuples for repeated keys."""
         resp = self.session.get(
             f"{self.base_url}/api/v1/{endpoint}",
             params=params,
@@ -82,63 +79,54 @@ class FabricStudioAPI:
         resp.raise_for_status()
         return resp.json()
 
+    def post_form(self, endpoint, form_data=None):
+        """POST request with form-encoded data."""
+        resp = self.session.post(
+            f"{self.base_url}/api/v1/{endpoint}",
+            data=form_data,
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def get_fabrics(self):
         """List all fabrics."""
         return self.get("model/fabric")
 
-    def get_fabric_devices(self, fabric_id):
-        """Get all devices in a fabric with ports."""
-        return self.get(
-            "model/fabric",
-            {
-                "select": f"id={fabric_id}",
-                "related-fields": [
-                    "devices",
-                    "devices.ports",
-                    "devices.ports.wire",
-                ],
-            },
-        )
-
     def get_routers(self, fabric_id=None):
-        """Get routers, optionally filtered by fabric."""
-        params = {"related-fields": ["ports"]}
+        """Get routers with ports, optionally filtered by fabric."""
+        params = [("related-fields", "ports")]
         if fabric_id:
-            params["select"] = f"fabric={fabric_id}"
+            params.append(("select", f"fabric={fabric_id}"))
         return self.get("model/router", params)
 
     def get_router_ports(self, router_id):
         """Get ports for a specific router."""
-        return self.get("model/routerport", {"select": f"router={router_id}"})
+        return self.get("model/routerport", [("select", f"router={router_id}")])
 
     def get_switches(self, fabric_id=None):
-        """Get switches, optionally filtered by fabric."""
-        params = {"related-fields": ["ports"]}
+        """Get switches with ports, optionally filtered by fabric."""
+        params = [("related-fields", "ports")]
         if fabric_id:
-            params["select"] = f"fabric={fabric_id}"
+            params.append(("select", f"fabric={fabric_id}"))
         return self.get("model/switch", params)
 
     def get_vms(self, fabric_id=None):
-        """Get VMs, optionally filtered by fabric."""
-        params = {"related-fields": ["ports"]}
+        """Get VMs with ports, optionally filtered by fabric."""
+        params = [("related-fields", "ports")]
         if fabric_id:
-            params["select"] = f"fabric={fabric_id}"
+            params.append(("select", f"fabric={fabric_id}"))
         return self.get("model/vm", params)
 
-    def execute_router_script(self, router_id, script):
-        """Execute a script on a router via configuration update."""
-        return self.post(
-            f"model/router/update",
-            {"id": router_id, "script": script},
-        )
-
     def update_router(self, router_id, data):
-        """Update router properties."""
-        data["id"] = router_id
-        return self.post("model/router/update", data)
+        """Update router properties via form POST."""
+        form = {}
+        for key, value in data.items():
+            form[f"object.{key}"] = value
+        return self.post_form(f"model/router/{router_id}", form)
 
 
-# Global API client store (per-session in production, simplified here)
+# Global API client store
 api_clients = {}
 
 
@@ -160,26 +148,21 @@ def get_api_client():
 # --- TC Command Builder ---
 
 def build_tc_commands(interface, params):
-    """Build tc (traffic control) commands for WAN emulation.
-
-    Uses tc qdisc with netem for latency/jitter/loss and tbf for bandwidth.
-    """
+    """Build tc (traffic control) commands for WAN emulation."""
     commands = []
-    # Clear existing rules
     commands.append(f"tc qdisc del dev {interface} root 2>/dev/null || true")
 
     has_netem = any(
         params.get(k)
-        for k in ["delay_ms", "jitter_ms", "loss_percent", "corrupt_percent", "duplicate_percent", "reorder_percent"]
+        for k in ["delay_ms", "jitter_ms", "loss_percent", "corrupt_percent",
+                   "duplicate_percent", "reorder_percent"]
     )
     has_bw = params.get("bandwidth_kbit")
 
     if not has_netem and not has_bw:
-        # Just clear - no rules to apply
         return commands
 
     if has_netem and has_bw:
-        # Chain: root htb -> netem as child
         bw = int(params["bandwidth_kbit"])
         commands.append(
             f"tc qdisc add dev {interface} root handle 1: tbf"
@@ -223,10 +206,7 @@ def _netem_params(params):
 
 
 def build_router_script(port_rules):
-    """Build a complete router script with tc rules for multiple ports.
-
-    port_rules: dict of {interface_name: params_dict}
-    """
+    """Build a complete router script with tc rules for multiple ports."""
     lines = []
     for interface, params in port_rules.items():
         cmds = build_tc_commands(interface, params)
@@ -239,83 +219,51 @@ def build_router_script(port_rules):
 WAN_PRESETS = {
     "perfect": {
         "label": "Perfect Link",
-        "delay_ms": 0,
-        "jitter_ms": 0,
-        "loss_percent": 0,
-        "bandwidth_kbit": 0,
-        "corrupt_percent": 0,
-        "duplicate_percent": 0,
-        "reorder_percent": 0,
+        "delay_ms": 0, "jitter_ms": 0, "loss_percent": 0,
+        "bandwidth_kbit": 0, "corrupt_percent": 0,
+        "duplicate_percent": 0, "reorder_percent": 0,
     },
     "broadband": {
         "label": "Broadband (Cable/DSL)",
-        "delay_ms": 20,
-        "jitter_ms": 5,
-        "loss_percent": 0.1,
-        "bandwidth_kbit": 50000,
-        "corrupt_percent": 0,
-        "duplicate_percent": 0,
-        "reorder_percent": 0,
+        "delay_ms": 20, "jitter_ms": 5, "loss_percent": 0.1,
+        "bandwidth_kbit": 50000, "corrupt_percent": 0,
+        "duplicate_percent": 0, "reorder_percent": 0,
     },
     "4g_lte": {
         "label": "4G LTE",
-        "delay_ms": 50,
-        "jitter_ms": 15,
-        "loss_percent": 0.5,
-        "bandwidth_kbit": 30000,
-        "corrupt_percent": 0,
-        "duplicate_percent": 0,
-        "reorder_percent": 0,
+        "delay_ms": 50, "jitter_ms": 15, "loss_percent": 0.5,
+        "bandwidth_kbit": 30000, "corrupt_percent": 0,
+        "duplicate_percent": 0, "reorder_percent": 0,
     },
     "3g": {
         "label": "3G Mobile",
-        "delay_ms": 100,
-        "jitter_ms": 40,
-        "loss_percent": 2,
-        "bandwidth_kbit": 5000,
-        "corrupt_percent": 0,
-        "duplicate_percent": 0,
-        "reorder_percent": 0,
+        "delay_ms": 100, "jitter_ms": 40, "loss_percent": 2,
+        "bandwidth_kbit": 5000, "corrupt_percent": 0,
+        "duplicate_percent": 0, "reorder_percent": 0,
     },
     "satellite": {
         "label": "Satellite",
-        "delay_ms": 600,
-        "jitter_ms": 50,
-        "loss_percent": 1,
-        "bandwidth_kbit": 10000,
-        "corrupt_percent": 0,
-        "duplicate_percent": 0,
-        "reorder_percent": 0,
+        "delay_ms": 600, "jitter_ms": 50, "loss_percent": 1,
+        "bandwidth_kbit": 10000, "corrupt_percent": 0,
+        "duplicate_percent": 0, "reorder_percent": 0,
     },
     "congested": {
         "label": "Congested Network",
-        "delay_ms": 80,
-        "jitter_ms": 60,
-        "loss_percent": 5,
-        "bandwidth_kbit": 2000,
-        "corrupt_percent": 0.5,
-        "duplicate_percent": 1,
-        "reorder_percent": 2,
+        "delay_ms": 80, "jitter_ms": 60, "loss_percent": 5,
+        "bandwidth_kbit": 2000, "corrupt_percent": 0.5,
+        "duplicate_percent": 1, "reorder_percent": 2,
     },
     "mpls": {
         "label": "MPLS (Enterprise)",
-        "delay_ms": 10,
-        "jitter_ms": 2,
-        "loss_percent": 0,
-        "bandwidth_kbit": 100000,
-        "corrupt_percent": 0,
-        "duplicate_percent": 0,
-        "reorder_percent": 0,
+        "delay_ms": 10, "jitter_ms": 2, "loss_percent": 0,
+        "bandwidth_kbit": 100000, "corrupt_percent": 0,
+        "duplicate_percent": 0, "reorder_percent": 0,
     },
     "degraded": {
         "label": "Degraded WAN",
-        "delay_ms": 150,
-        "jitter_ms": 80,
-        "loss_percent": 8,
-        "bandwidth_kbit": 1000,
-        "corrupt_percent": 1,
-        "duplicate_percent": 2,
-        "reorder_percent": 5,
+        "delay_ms": 150, "jitter_ms": 80, "loss_percent": 8,
+        "bandwidth_kbit": 1000, "corrupt_percent": 1,
+        "duplicate_percent": 2, "reorder_percent": 5,
     },
 }
 
@@ -389,28 +337,53 @@ def get_topology(fabric_id):
     if not client:
         return jsonify({"status": "error", "message": "Not connected"}), 401
     try:
-        # Get all device types
         routers = client.get_routers(fabric_id)
         switches = client.get_switches(fabric_id)
         vms = client.get_vms(fabric_id)
 
         topology = {
-            "routers": _extract_devices(routers, "router"),
-            "switches": _extract_devices(switches, "switch"),
-            "vms": _extract_devices(vms, "vm"),
+            "routers": _extract_devices(routers, "router", "routerport"),
+            "switches": _extract_devices(switches, "switch", "switchport"),
+            "vms": _extract_devices(vms, "vm", "vmport"),
         }
         return jsonify({"status": "ok", "topology": topology})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-def _extract_devices(result, device_type):
+@app.route("/api/router/<int:router_id>/ports", methods=["GET"])
+def get_router_ports_route(router_id):
+    """Get ports for a specific router (separate call for reliability)."""
+    client = get_api_client()
+    if not client:
+        return jsonify({"status": "error", "message": "Not connected"}), 401
+    try:
+        result = client.get_router_ports(router_id)
+        ports = []
+        objects = result.get("object", [])
+        if isinstance(objects, dict):
+            objects = [objects]
+        for p in objects:
+            ports.append({
+                "id": p["id"],
+                "name": p.get("name", p.get("nameid", f"port{p['id']}")),
+                "wire": p.get("wire"),
+            })
+        return jsonify({"status": "ok", "ports": ports})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+def _extract_devices(result, device_type, port_model):
     """Extract device list from API result."""
     devices = []
     objects = result.get("object", [])
     if isinstance(objects, dict):
         objects = [objects]
     others = result.get("others", {})
+
+    # Port data from others section
+    port_others = others.get(port_model, {})
 
     for obj in objects:
         dev = {
@@ -419,10 +392,8 @@ def _extract_devices(result, device_type):
             "type": device_type,
             "ports": [],
         }
-        # Extract ports from related objects
-        port_model = f"{device_type}port"
-        port_others = others.get(port_model, {})
-        for port_id, port_data in port_others.items():
+        # Match ports to this device by parent ID
+        for port_id_str, port_data in port_others.items():
             parent_id = port_data.get(device_type)
             if parent_id == obj["id"]:
                 dev["ports"].append({
@@ -442,14 +413,13 @@ def get_presets():
 
 @app.route("/api/apply", methods=["POST"])
 def apply_wan_rules():
-    """Apply WAN emulation rules to router interfaces.
+    """Apply WAN emulation rules to a router.
 
     Expects JSON:
     {
         "router_id": 1,
         "interfaces": {
-            "eth0": { "delay_ms": 50, "jitter_ms": 10, ... },
-            "eth1": { "delay_ms": 100, ... }
+            "eth0": { "delay_ms": 50, "jitter_ms": 10, ... }
         }
     }
     """
@@ -518,6 +488,20 @@ def connection_status():
         "host": config["host"],
         "username": config["username"],
     })
+
+
+@app.route("/api/debug/raw/<path:endpoint>", methods=["GET"])
+def debug_raw(endpoint):
+    """Debug endpoint to see raw API responses."""
+    client = get_api_client()
+    if not client:
+        return jsonify({"status": "error", "message": "Not connected"}), 401
+    try:
+        params = list(request.args.items(multi=True))
+        result = client.get(endpoint, params if params else None)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 if __name__ == "__main__":

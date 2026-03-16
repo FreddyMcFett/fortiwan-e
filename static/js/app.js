@@ -18,6 +18,7 @@ const API = {
     disconnect: () => API.request('POST', '/api/disconnect'),
     fabrics: () => API.request('GET', '/api/fabrics'),
     topology: (id) => API.request('GET', `/api/fabric/${id}/topology`),
+    routerPorts: (id) => API.request('GET', `/api/router/${id}/ports`),
     presets: () => API.request('GET', '/api/presets'),
     apply: (d) => API.request('POST', '/api/apply', d),
     clear: (d) => API.request('POST', '/api/clear', d),
@@ -31,10 +32,9 @@ const state = {
     topology: null,
     selectedRouter: null,
     presets: {},
-    interfaceParams: {}, // { ifaceName: { delay_ms, jitter_ms, ... } }
+    interfaceParams: {},
 };
 
-// DOM refs
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
@@ -49,8 +49,6 @@ function setupEventListeners() {
     $('#connect-form').addEventListener('submit', handleConnect);
     $('#btn-disconnect').addEventListener('click', handleDisconnect);
     $('#btn-load-topology').addEventListener('click', handleLoadTopology);
-    $('#btn-apply-all').addEventListener('click', handleApplyAll);
-    $('#btn-clear-all').addEventListener('click', handleClearAll);
     $('#btn-clear-log').addEventListener('click', () => { $('#log-entries').innerHTML = ''; });
 }
 
@@ -80,9 +78,7 @@ async function handleConnect(e) {
 }
 
 async function handleDisconnect() {
-    try {
-        await API.disconnect();
-    } catch (_) {}
+    try { await API.disconnect(); } catch (_) {}
     setConnected(false);
     state.fabricId = null;
     state.topology = null;
@@ -201,35 +197,50 @@ function renderTopology(topo) {
     });
 }
 
-function selectRouter(router) {
+async function selectRouter(router) {
     // Deselect all
     $$('.topo-device').forEach(el => el.classList.remove('selected'));
-    // Select this one
     const el = document.querySelector(`.topo-device[data-id="${router.id}"][data-type="router"]`);
     if (el) el.classList.add('selected');
 
     state.selectedRouter = router;
     state.interfaceParams = {};
 
-    // Build interface list from ports
-    const ports = router.ports || [];
+    // Use ports from topology; if empty, fetch separately
+    let ports = router.ports || [];
+    if (ports.length === 0) {
+        try {
+            const data = await API.routerPorts(router.id);
+            ports = data.ports || [];
+            // Update the topology device too
+            router.ports = ports;
+            // Update port count in topology view
+            if (el) {
+                const portsEl = el.querySelector('.topo-ports');
+                if (portsEl) portsEl.textContent = `${ports.length} port${ports.length !== 1 ? 's' : ''}`;
+            }
+        } catch (err) {
+            addLog(`Failed to fetch ports for ${router.name}: ${err.message}`, 'error');
+        }
+    }
+
     ports.forEach(p => {
         const name = p.name || `eth${p.id}`;
-        state.interfaceParams[name] = {
-            delay_ms: 0,
-            jitter_ms: 0,
-            loss_percent: 0,
-            bandwidth_kbit: 0,
-            corrupt_percent: 0,
-            duplicate_percent: 0,
-            reorder_percent: 0,
-            correlation_percent: 0,
-        };
+        state.interfaceParams[name] = defaultParams();
     });
 
     renderEmulator(router);
     $('#emulator-panel').classList.remove('hidden');
     $('#emulator-title').textContent = `WAN Emulation — ${router.name}`;
+}
+
+function defaultParams() {
+    return {
+        delay_ms: 0, jitter_ms: 0, loss_percent: 0,
+        bandwidth_kbit: 0, corrupt_percent: 0,
+        duplicate_percent: 0, reorder_percent: 0,
+        correlation_percent: 0,
+    };
 }
 
 // --- Presets ---
@@ -238,53 +249,29 @@ async function loadPresets() {
     try {
         const data = await API.presets();
         state.presets = data.presets;
-        renderPresets();
     } catch (_) {
-        // Use fallback presets if API not available yet
         state.presets = {};
     }
 }
 
-function renderPresets() {
-    const container = $('#preset-buttons');
-    container.innerHTML = '';
-
-    Object.entries(state.presets).forEach(([key, preset]) => {
-        const btn = document.createElement('button');
-        btn.className = 'preset-btn';
-        btn.textContent = preset.label;
-        btn.dataset.preset = key;
-        btn.addEventListener('click', () => applyPreset(key));
-        container.appendChild(btn);
-    });
-}
-
-function applyPreset(key) {
+function applyPresetToInterface(iface, key) {
     const preset = state.presets[key];
     if (!preset) return;
 
-    // Highlight active preset
-    $$('.preset-btn').forEach(b => b.classList.remove('active'));
-    const btn = document.querySelector(`.preset-btn[data-preset="${key}"]`);
-    if (btn) btn.classList.add('active');
+    state.interfaceParams[iface] = {
+        delay_ms: preset.delay_ms || 0,
+        jitter_ms: preset.jitter_ms || 0,
+        loss_percent: preset.loss_percent || 0,
+        bandwidth_kbit: preset.bandwidth_kbit || 0,
+        corrupt_percent: preset.corrupt_percent || 0,
+        duplicate_percent: preset.duplicate_percent || 0,
+        reorder_percent: preset.reorder_percent || 0,
+        correlation_percent: 0,
+    };
 
-    // Apply to all interfaces
-    Object.keys(state.interfaceParams).forEach(iface => {
-        state.interfaceParams[iface] = {
-            delay_ms: preset.delay_ms || 0,
-            jitter_ms: preset.jitter_ms || 0,
-            loss_percent: preset.loss_percent || 0,
-            bandwidth_kbit: preset.bandwidth_kbit || 0,
-            corrupt_percent: preset.corrupt_percent || 0,
-            duplicate_percent: preset.duplicate_percent || 0,
-            reorder_percent: preset.reorder_percent || 0,
-            correlation_percent: 0,
-        };
-    });
-
-    // Re-render sliders
+    // Re-render just this card
     renderEmulator(state.selectedRouter);
-    addLog(`Preset "${preset.label}" applied to all interfaces`);
+    addLog(`Preset "${preset.label}" applied to ${iface}`);
 }
 
 // --- Emulator Controls ---
@@ -293,7 +280,14 @@ function renderEmulator(router) {
     const container = $('#interface-cards');
     container.innerHTML = '';
 
-    Object.entries(state.interfaceParams).forEach(([iface, params]) => {
+    const entries = Object.entries(state.interfaceParams);
+
+    if (entries.length === 0) {
+        container.innerHTML = '<p style="color:var(--text-muted)">No ports found on this router. The router may not have ports configured yet.</p>';
+        return;
+    }
+
+    entries.forEach(([iface, params]) => {
         const card = createInterfaceCard(iface, params);
         container.appendChild(card);
     });
@@ -304,7 +298,13 @@ function createInterfaceCard(iface, params) {
     card.className = 'iface-card';
     card.dataset.iface = iface;
 
-    const hasRules = Object.values(params).some(v => v > 0);
+    const hasRules = Object.entries(params).some(([k, v]) => k !== 'correlation_percent' && v > 0);
+
+    // Build preset options
+    let presetOptions = '<option value="">-- Select Preset --</option>';
+    Object.entries(state.presets).forEach(([key, preset]) => {
+        presetOptions += `<option value="${key}">${preset.label}</option>`;
+    });
 
     card.innerHTML = `
         <div class="iface-header">
@@ -312,7 +312,13 @@ function createInterfaceCard(iface, params) {
                 <span class="dot ${hasRules ? 'active' : ''}"></span>
                 ${iface}
             </div>
-            <div class="iface-status">${hasRules ? 'Rules Active' : 'No Rules'}</div>
+            <div class="iface-header-actions">
+                <select class="preset-select" data-iface="${iface}">
+                    ${presetOptions}
+                </select>
+                <button class="btn btn-sm btn-primary btn-apply" data-iface="${iface}">Apply</button>
+                <button class="btn btn-sm btn-danger btn-clear" data-iface="${iface}">Clear</button>
+            </div>
         </div>
         <div class="iface-body">
             ${slider(iface, 'delay_ms', 'Delay', params.delay_ms, 0, 2000, 1, 'ms')}
@@ -325,8 +331,9 @@ function createInterfaceCard(iface, params) {
         </div>
     `;
 
-    // Attach slider listeners after inserting into DOM
+    // Attach event listeners after DOM insertion
     setTimeout(() => {
+        // Sliders
         card.querySelectorAll('input[type="range"]').forEach(input => {
             input.addEventListener('input', (e) => {
                 const param = e.target.dataset.param;
@@ -334,12 +341,32 @@ function createInterfaceCard(iface, params) {
                 state.interfaceParams[iface][param] = val;
                 const display = e.target.closest('.slider-group').querySelector('.slider-value');
                 display.textContent = formatValue(val, e.target.dataset.unit);
-                // Clear preset highlight
-                $$('.preset-btn').forEach(b => b.classList.remove('active'));
-                // Update status dot
+                // Reset preset dropdown
+                const sel = card.querySelector('.preset-select');
+                if (sel) sel.value = '';
                 updateCardStatus(iface);
             });
         });
+
+        // Preset dropdown
+        const presetSel = card.querySelector('.preset-select');
+        if (presetSel) {
+            presetSel.addEventListener('change', (e) => {
+                if (e.target.value) applyPresetToInterface(iface, e.target.value);
+            });
+        }
+
+        // Apply button
+        const applyBtn = card.querySelector('.btn-apply');
+        if (applyBtn) {
+            applyBtn.addEventListener('click', () => handleApplyInterface(iface));
+        }
+
+        // Clear button
+        const clearBtn = card.querySelector('.btn-clear');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => handleClearInterface(iface));
+        }
     }, 0);
 
     return card;
@@ -370,71 +397,60 @@ function formatValue(val, unit) {
 
 function updateCardStatus(iface) {
     const params = state.interfaceParams[iface];
-    const hasRules = Object.values(params).some(v => v > 0);
+    const hasRules = Object.entries(params).some(([k, v]) => k !== 'correlation_percent' && v > 0);
     const card = document.querySelector(`.iface-card[data-iface="${iface}"]`);
     if (!card) return;
-    const dot = card.querySelector('.dot');
-    const status = card.querySelector('.iface-status');
-    dot.className = `dot ${hasRules ? 'active' : ''}`;
-    status.textContent = hasRules ? 'Rules Active' : 'No Rules';
+    card.querySelector('.dot').className = `dot ${hasRules ? 'active' : ''}`;
 }
 
-// --- Apply/Clear ---
+// --- Per-Interface Apply/Clear ---
 
-async function handleApplyAll() {
-    if (!state.selectedRouter) return toast('Select a router first', 'error');
+async function handleApplyInterface(iface) {
+    if (!state.selectedRouter) return;
 
-    const btn = $('#btn-apply-all');
-    btn.disabled = true;
-    btn.textContent = 'Applying...';
+    const card = document.querySelector(`.iface-card[data-iface="${iface}"]`);
+    const btn = card?.querySelector('.btn-apply');
+    if (btn) { btn.disabled = true; btn.textContent = 'Applying...'; }
 
     try {
         const result = await API.apply({
             router_id: state.selectedRouter.id,
-            interfaces: state.interfaceParams,
+            interfaces: { [iface]: state.interfaceParams[iface] },
         });
-        toast('WAN rules applied successfully', 'success');
-        addLog(`Rules applied to ${state.selectedRouter.name}`, 'success');
-        if (result.script) {
-            addLog(`Script: ${result.script}`);
-        }
+        toast(`Rules applied to ${iface}`, 'success');
+        addLog(`Rules applied to ${state.selectedRouter.name} / ${iface}`, 'success');
+        if (result.script) addLog(`Script: ${result.script}`);
     } catch (err) {
-        toast('Failed to apply rules: ' + err.message, 'error');
-        addLog(`Error: ${err.message}`, 'error');
+        toast(`Failed: ${err.message}`, 'error');
+        addLog(`Error applying to ${iface}: ${err.message}`, 'error');
     } finally {
-        btn.disabled = false;
-        btn.textContent = 'Apply All';
+        if (btn) { btn.disabled = false; btn.textContent = 'Apply'; }
     }
 }
 
-async function handleClearAll() {
-    if (!state.selectedRouter) return toast('Select a router first', 'error');
+async function handleClearInterface(iface) {
+    if (!state.selectedRouter) return;
 
-    const btn = $('#btn-clear-all');
-    btn.disabled = true;
+    const card = document.querySelector(`.iface-card[data-iface="${iface}"]`);
+    const btn = card?.querySelector('.btn-clear');
+    if (btn) btn.disabled = true;
 
     try {
         await API.clear({
             router_id: state.selectedRouter.id,
-            interfaces: Object.keys(state.interfaceParams),
+            interfaces: [iface],
         });
 
-        // Reset all params
-        Object.keys(state.interfaceParams).forEach(iface => {
-            Object.keys(state.interfaceParams[iface]).forEach(k => {
-                state.interfaceParams[iface][k] = 0;
-            });
-        });
-
+        // Reset params
+        state.interfaceParams[iface] = defaultParams();
         renderEmulator(state.selectedRouter);
-        $$('.preset-btn').forEach(b => b.classList.remove('active'));
-        toast('All WAN rules cleared', 'success');
-        addLog(`Rules cleared on ${state.selectedRouter.name}`, 'success');
+        toast(`Rules cleared on ${iface}`, 'success');
+        addLog(`Rules cleared on ${state.selectedRouter.name} / ${iface}`, 'success');
     } catch (err) {
-        toast('Failed to clear rules: ' + err.message, 'error');
-        addLog(`Error: ${err.message}`, 'error');
+        toast(`Failed: ${err.message}`, 'error');
+        addLog(`Error clearing ${iface}: ${err.message}`, 'error');
     } finally {
-        btn.disabled = false;
+        if (btn) btn.disabled = false;
     }
 }
 
@@ -447,11 +463,7 @@ function addLog(msg, type = '') {
     entry.className = 'log-entry';
     entry.innerHTML = `<span class="log-time">${now}</span><span class="log-msg ${type}">${msg}</span>`;
     container.prepend(entry);
-
-    // Keep max 50 entries
-    while (container.children.length > 50) {
-        container.removeChild(container.lastChild);
-    }
+    while (container.children.length > 50) container.removeChild(container.lastChild);
 }
 
 // --- Toast ---

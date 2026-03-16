@@ -316,49 +316,27 @@ body {
     color: var(--text-secondary);
 }
 
-/* Presets */
-.presets-bar {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 20px;
-    flex-wrap: wrap;
-}
-
-.presets-label {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    white-space: nowrap;
-}
-
-.preset-buttons {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-}
-
-.preset-btn {
-    padding: 5px 12px;
+/* Preset dropdown in interface card */
+.preset-select {
+    padding: 5px 28px 5px 10px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
-    border-radius: 20px;
+    border-radius: var(--radius);
     color: var(--text-secondary);
     font-size: 12px;
     cursor: pointer;
-    transition: all var(--transition);
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' stroke='%239ca3b8' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    transition: border var(--transition);
 }
 
-.preset-btn:hover {
+.preset-select:hover,
+.preset-select:focus {
     border-color: var(--accent);
     color: var(--text-primary);
-    background: var(--accent-light);
-}
-
-.preset-btn.active {
-    background: var(--accent);
-    color: white;
-    border-color: var(--accent);
+    outline: none;
 }
 
 /* Interface Cards */
@@ -382,6 +360,8 @@ body {
     padding: 12px 16px;
     border-bottom: 1px solid var(--border);
     background: var(--bg-primary);
+    gap: 12px;
+    flex-wrap: wrap;
 }
 
 .iface-name {
@@ -401,9 +381,10 @@ body {
 
 .iface-name .dot.active { background: var(--green); }
 
-.iface-status {
-    font-size: 11px;
-    color: var(--text-muted);
+.iface-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
 .iface-body {
