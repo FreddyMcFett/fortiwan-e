@@ -89,6 +89,16 @@ class FabricStudioAPI:
         resp.raise_for_status()
         return resp.json()
 
+    def patch(self, endpoint, data=None):
+        """PATCH request to API."""
+        resp = self.session.patch(
+            f"{self.base_url}/api/v1/{endpoint}",
+            json=data,
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def get_fabrics(self):
         """List all fabrics."""
         return self.get("model/fabric")
@@ -220,12 +230,14 @@ class FabricStudioAPI:
         return self.post_form(f"model/router/{router_id}", form)
 
     def update_device(self, device_type, device_id, data):
-        """Update any device type properties via form POST."""
-        model = device_type  # router, switch, vm
-        form = {}
-        for key, value in data.items():
-            form[f"object.{key}"] = value
-        return self.post_form(f"model/{model}/{device_id}", form)
+        """Update any device type. Routers use form POST, others use PATCH."""
+        if device_type == "router":
+            form = {}
+            for key, value in data.items():
+                form[f"object.{key}"] = value
+            return self.post_form(f"model/{device_type}/{device_id}", form)
+        else:
+            return self.patch(f"model/{device_type}/{device_id}", data)
 
 
 # Global API client store
