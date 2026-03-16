@@ -19,6 +19,7 @@ const API = {
     fabrics: () => API.request('GET', '/api/fabrics'),
     topology: (id) => API.request('GET', `/api/fabric/${id}/topology`),
     routerPorts: (id) => API.request('GET', `/api/router/${id}/ports`),
+    devicePorts: (type, id) => API.request('GET', `/api/device/${type}/${id}/ports`),
     presets: () => API.request('GET', '/api/presets'),
     apply: (d) => API.request('POST', '/api/apply', d),
     clear: (d) => API.request('POST', '/api/clear', d),
@@ -35,7 +36,7 @@ const state = {
     connected: false,
     fabricId: null,
     topology: null,
-    selectedRouter: null,
+    selectedDevice: null,
     presets: {},
     interfaceParams: {},
 };
@@ -87,7 +88,7 @@ async function handleDisconnect() {
     setConnected(false);
     state.fabricId = null;
     state.topology = null;
-    state.selectedRouter = null;
+    state.selectedDevice = null;
     $('#fabric-panel').classList.add('hidden');
     $('#topology-panel').classList.add('hidden');
     $('#emulator-panel').classList.add('hidden');
@@ -168,6 +169,12 @@ async function handleLoadTopology() {
         (topo.routers || []).forEach(r => {
             addLog(`  Router "${r.name}": ${(r.ports || []).length} port(s)`);
         });
+        (topo.switches || []).forEach(s => {
+            addLog(`  Switch "${s.name}": ${(s.ports || []).length} port(s)`);
+        });
+        (topo.vms || []).forEach(v => {
+            addLog(`  VM "${v.name}": ${(v.ports || []).length} port(s)`);
+        });
     } catch (err) {
         toast('Failed to load topology: ' + err.message, 'error');
         addLog('Topology load failed: ' + err.message, 'error');
@@ -207,42 +214,52 @@ function renderTopology(topo) {
             </div>
         `;
 
-        if (dev.type === 'router') {
-            el.addEventListener('click', () => selectRouter(dev));
-        }
+        el.style.cursor = 'pointer';
+        el.addEventListener('click', () => selectDevice(dev));
 
         container.appendChild(el);
     });
 }
 
-async function selectRouter(router) {
-    // Deselect all
+async function selectDevice(device) {
+    const el = document.querySelector(`.topo-device[data-id="${device.id}"][data-type="${device.type}"]`);
+
+    // If clicking the already-selected device, deselect it
+    if (state.selectedDevice && state.selectedDevice.id === device.id && state.selectedDevice.type === device.type) {
+        if (el) el.classList.remove('selected');
+        state.selectedDevice = null;
+        state.interfaceParams = {};
+        $('#emulator-panel').classList.add('hidden');
+        addLog(`Deselected ${device.name}`);
+        return;
+    }
+
+    // Deselect all, then select clicked device
     $$('.topo-device').forEach(el => el.classList.remove('selected'));
-    const el = document.querySelector(`.topo-device[data-id="${router.id}"][data-type="router"]`);
     if (el) el.classList.add('selected');
 
-    state.selectedRouter = router;
+    state.selectedDevice = device;
     state.interfaceParams = {};
 
     // Use ports from topology; if empty, fetch separately
-    let ports = router.ports || [];
+    let ports = device.ports || [];
     if (ports.length === 0) {
-        addLog(`Router ${router.name} has 0 ports from topology, fetching individually...`);
+        addLog(`${device.type} "${device.name}" has 0 ports from topology, fetching individually...`);
         try {
-            const data = await API.routerPorts(router.id);
+            const data = await API.devicePorts(device.type, device.id);
             ports = data.ports || [];
-            router.ports = ports;
+            device.ports = ports;
             if (el) {
                 const portsEl = el.querySelector('.topo-ports');
                 if (portsEl) portsEl.textContent = `${ports.length} port${ports.length !== 1 ? 's' : ''}`;
             }
             if (ports.length > 0) {
-                addLog(`Fetched ${ports.length} port(s) for ${router.name}`, 'success');
+                addLog(`Fetched ${ports.length} port(s) for ${device.name}`, 'success');
             } else {
-                addLog(`Router ${router.name} still has 0 ports after individual fetch`, 'error');
+                addLog(`${device.type} "${device.name}" still has 0 ports after individual fetch`, 'error');
             }
         } catch (err) {
-            addLog(`Failed to fetch ports for ${router.name}: ${err.message}`, 'error');
+            addLog(`Failed to fetch ports for ${device.name}: ${err.message}`, 'error');
         }
     }
 
@@ -251,9 +268,9 @@ async function selectRouter(router) {
         state.interfaceParams[name] = defaultParams();
     });
 
-    renderEmulator(router);
+    renderEmulator(device);
     $('#emulator-panel').classList.remove('hidden');
-    $('#emulator-title').textContent = `WAN Emulation — ${router.name}`;
+    $('#emulator-title').textContent = `WAN Emulation — ${device.name}`;
 }
 
 function defaultParams() {
@@ -292,7 +309,7 @@ function applyPresetToInterface(iface, key) {
     };
 
     // Re-render just this card
-    renderEmulator(state.selectedRouter);
+    renderEmulator(state.selectedDevice);
     addLog(`Preset "${preset.label}" applied to ${iface}`);
 }
 
@@ -305,7 +322,7 @@ function renderEmulator(router) {
     const entries = Object.entries(state.interfaceParams);
 
     if (entries.length === 0) {
-        container.innerHTML = '<p style="color:var(--text-muted)">No ports found on this router. The router may not have ports configured yet.</p>';
+        container.innerHTML = '<p style="color:var(--text-muted)">No ports found on this device. The device may not have ports configured yet.</p>';
         return;
     }
 
@@ -428,7 +445,7 @@ function updateCardStatus(iface) {
 // --- Per-Interface Apply/Clear ---
 
 async function handleApplyInterface(iface) {
-    if (!state.selectedRouter) return;
+    if (!state.selectedDevice) return;
 
     const card = document.querySelector(`.iface-card[data-iface="${iface}"]`);
     const btn = card?.querySelector('.btn-apply');
@@ -436,11 +453,12 @@ async function handleApplyInterface(iface) {
 
     try {
         const result = await API.apply({
-            router_id: state.selectedRouter.id,
+            device_id: state.selectedDevice.id,
+            device_type: state.selectedDevice.type,
             interfaces: { [iface]: state.interfaceParams[iface] },
         });
         toast(`Rules applied to ${iface}`, 'success');
-        addLog(`Rules applied to ${state.selectedRouter.name} / ${iface}`, 'success');
+        addLog(`Rules applied to ${state.selectedDevice.name} / ${iface}`, 'success');
         if (result.script) addLog(`Script: ${result.script}`);
     } catch (err) {
         toast(`Failed: ${err.message}`, 'error');
@@ -451,7 +469,7 @@ async function handleApplyInterface(iface) {
 }
 
 async function handleClearInterface(iface) {
-    if (!state.selectedRouter) return;
+    if (!state.selectedDevice) return;
 
     const card = document.querySelector(`.iface-card[data-iface="${iface}"]`);
     const btn = card?.querySelector('.btn-clear');
@@ -459,15 +477,16 @@ async function handleClearInterface(iface) {
 
     try {
         await API.clear({
-            router_id: state.selectedRouter.id,
+            device_id: state.selectedDevice.id,
+            device_type: state.selectedDevice.type,
             interfaces: [iface],
         });
 
         // Reset params
         state.interfaceParams[iface] = defaultParams();
-        renderEmulator(state.selectedRouter);
+        renderEmulator(state.selectedDevice);
         toast(`Rules cleared on ${iface}`, 'success');
-        addLog(`Rules cleared on ${state.selectedRouter.name} / ${iface}`, 'success');
+        addLog(`Rules cleared on ${state.selectedDevice.name} / ${iface}`, 'success');
     } catch (err) {
         toast(`Failed: ${err.message}`, 'error');
         addLog(`Error clearing ${iface}: ${err.message}`, 'error');
