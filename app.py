@@ -89,6 +89,16 @@ class FabricStudioAPI:
         resp.raise_for_status()
         return resp.json()
 
+    def put(self, endpoint, data=None):
+        """PUT request to API (used for updates)."""
+        resp = self.session.put(
+            f"{self.base_url}/api/v1/{endpoint}",
+            json=data,
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def get_fabrics(self):
         """List all fabrics."""
         return self.get("model/fabric")
@@ -233,8 +243,8 @@ class FabricStudioAPI:
         return None
 
     def update_tc(self, tc_id, data):
-        """Update a traffic control object via JSON POST."""
-        return self.post(f"model/tc/{tc_id}", data)
+        """Update a traffic control object via PUT."""
+        return self.put(f"model/tc/{tc_id}", data)
 
 
 # Global API client store
