@@ -261,44 +261,10 @@ class FabricStudioAPI:
         return None
 
     def update_tc(self, tc_id, data):
-        """Update a traffic control object via runtime tc update.
-
-        Mirrors the exact payload the Fabric Studio web UI sends::
-
-            POST /api/v1/runtime/tc
-            {
-              "command": "runtime tc update",
-              "arguments": {
-                "trafficcontrol": [<tc_id>],
-                "object": [{ "id": <tc_id>, ...fields...,
-                             "__model": "model.trafficcontrol" }],
-                "update_fields": [],
-                "related_fields": []
-              }
-            }
-        """
+        """Update a traffic control object via PUT on the model endpoint."""
         obj = {"id": tc_id, "__model": "model.trafficcontrol"}
         obj.update(data)
-        payload = {
-            "command": "runtime tc update",
-            "arguments": {
-                "trafficcontrol": [tc_id],
-                "object": [obj],
-                "update_fields": [],
-                "related_fields": [],
-            },
-        }
-        # Try the command-dispatch format to /runtime/tc first,
-        # then fall back to the direct REST-style endpoint.
-        try:
-            return self.post("runtime/tc", payload)
-        except Exception:
-            pass
-        try:
-            return self.post(f"runtime/tc/{tc_id}", data)
-        except Exception:
-            pass
-        return self.post(f"model/tc/{tc_id}", data)
+        return self.put(f"model/tc/{tc_id}", obj)
 
 
 # Global API client store
