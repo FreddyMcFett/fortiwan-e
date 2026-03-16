@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """FortiWAN-E - Web-based WAN Emulator for Fabric Studio SD-WAN demos."""
 
-import json
-import re
 import urllib3
 from flask import Flask, render_template, request, jsonify, session
 from flask_cors import CORS
@@ -90,10 +88,29 @@ class FabricStudioAPI:
         return resp.json()
 
     def put(self, endpoint, data=None):
-        """PUT request to API (used for updates)."""
+        """PUT request to API."""
         resp = self.session.put(
             f"{self.base_url}/api/v1/{endpoint}",
             json=data,
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def post_update(self, endpoint, data=None, update_fields=None):
+        """POST request for updating an existing object.
+
+        Fabric Studio uses POST (not PUT) for updates — the URL includes the
+        object ID (e.g. model/tc/7).  The optional ``update-fields`` query
+        parameter tells the server which fields to persist.
+        """
+        params = {}
+        if update_fields:
+            params["update-fields"] = ",".join(update_fields)
+        resp = self.session.post(
+            f"{self.base_url}/api/v1/{endpoint}",
+            json=data,
+            params=params if params else None,
             headers=self._headers(),
         )
         resp.raise_for_status()
@@ -233,18 +250,44 @@ class FabricStudioAPI:
         return self.post_form(f"model/router/{router_id}", form)
 
     def get_tc_for_port(self, port_id):
-        """Get the traffic control object for a specific port."""
-        result = self.get("model/tc", [("select", f"port={port_id}")])
-        objs = result.get("object", [])
-        if isinstance(objs, dict):
-            objs = [objs]
-        if objs:
-            return objs[0]
+        """Get the traffic control object for a specific port.
+
+        Tries filtering by port ID.  The TC model's field referencing the
+        port is called ``port`` in Fabric Studio's data model.
+        """
+        try:
+            result = self.get("model/tc", [("select", f"port={port_id}")])
+            objs = result.get("object", [])
+            if isinstance(objs, dict):
+                objs = [objs]
+            if objs:
+                return objs[0]
+        except Exception:
+            pass
+
+        # Fallback: list all TCs and filter client-side
+        try:
+            result = self.get("model/tc")
+            objs = result.get("object", [])
+            if isinstance(objs, dict):
+                objs = [objs]
+            for tc in objs:
+                if isinstance(tc, dict) and tc.get("port") == port_id:
+                    return tc
+        except Exception:
+            pass
+
         return None
 
     def update_tc(self, tc_id, data):
-        """Update a traffic control object via PUT."""
-        return self.put(f"model/tc/{tc_id}", data)
+        """Update a traffic control object.
+
+        Fabric Studio REST API uses POST for updates (not PUT).
+        The ``update-fields`` parameter ensures only specified fields
+        are modified.
+        """
+        fields = [k for k in data.keys()]
+        return self.post_update(f"model/tc/{tc_id}", data, update_fields=fields)
 
 
 # Global API client store
@@ -530,8 +573,13 @@ def _find_port_others(others, port_model, device_type):
     return {}
 
 
-def _make_port(port_data):
-    """Build a port dict from raw API port data."""
+def _make_port(port_data, tc_others=None):
+    """Build a port dict from raw API port data.
+
+    ``tc_others`` is the ``others["trafficcontrol"]`` dict (keyed by TC
+    object ID) so we can resolve the TC reference into an actual ID even
+    when the port only carries a bare integer reference.
+    """
     port = {
         "id": port_data["id"],
         "name": port_data.get("name", port_data.get("nameid", f"port{port_data['id']}")),
@@ -540,7 +588,19 @@ def _make_port(port_data):
     # Include tc (traffic control) ID if available
     tc = port_data.get("tc")
     if tc is not None:
-        port["tc"] = tc
+        # tc may be an int (ID reference) or a dict (inline object)
+        if isinstance(tc, dict) and "id" in tc:
+            port["tc"] = tc["id"]
+        elif isinstance(tc, (int, str)):
+            port["tc"] = int(tc) if isinstance(tc, str) else tc
+    elif tc_others:
+        # Fallback: scan tc_others for a TC whose port matches this port
+        for tc_id_str, tc_obj in tc_others.items():
+            if isinstance(tc_obj, dict):
+                tc_port = tc_obj.get("port")
+                if tc_port == port_data["id"]:
+                    port["tc"] = tc_obj.get("id", int(tc_id_str))
+                    break
     return port
 
 
@@ -553,6 +613,14 @@ def _extract_devices(result, device_type, port_model):
     others = result.get("others", {})
 
     port_others = _find_port_others(others, port_model, device_type)
+
+    # Look for TC data in others — Fabric Studio stores model.trafficcontrol
+    # objects under the key "trafficcontrol" in the others dict.
+    tc_others = {}
+    for key in ("trafficcontrol", "tc", "traffic_control"):
+        if key in others and isinstance(others[key], dict):
+            tc_others = others[key]
+            break
 
     for obj in objects:
         dev = {
@@ -568,7 +636,7 @@ def _extract_devices(result, device_type, port_model):
                 continue
             parent_id = port_data.get(device_type)
             if parent_id == obj["id"]:
-                dev["ports"].append(_make_port(port_data))
+                dev["ports"].append(_make_port(port_data, tc_others))
 
         # Strategy 2: Check inline ports on the object itself
         if not dev["ports"] and "ports" in obj:
@@ -576,12 +644,12 @@ def _extract_devices(result, device_type, port_model):
             if isinstance(inline_ports, list):
                 for p in inline_ports:
                     if isinstance(p, dict) and "id" in p:
-                        dev["ports"].append(_make_port(p))
+                        dev["ports"].append(_make_port(p, tc_others))
                     elif isinstance(p, (int, str)):
                         # Port is just an ID — look it up in others
                         port_data = port_others.get(str(p), port_others.get(int(p) if isinstance(p, str) else p, {}))
                         if isinstance(port_data, dict) and "id" in port_data:
-                            dev["ports"].append(_make_port(port_data))
+                            dev["ports"].append(_make_port(port_data, tc_others))
                         else:
                             dev["ports"].append({
                                 "id": int(p) if isinstance(p, str) else p,
@@ -665,6 +733,7 @@ def apply_wan_rules():
     {
         "device_id": 1,
         "device_type": "router",
+        "fabric_id": 1,
         "interfaces": {
             "port1": { "delay_ms": 50, "jitter_ms": 10, ... }
         },
@@ -679,6 +748,7 @@ def apply_wan_rules():
     data = request.json
     device_id = data.get("device_id") or data.get("router_id")
     device_type = data.get("device_type", "router")
+    fabric_id = data.get("fabric_id")
     interfaces = data.get("interfaces", {})
     port_ids = data.get("port_ids", {})
     tc_ids = data.get("tc_ids", {})
@@ -703,7 +773,7 @@ def apply_wan_rules():
                 continue
 
             tc_params = _build_tc_params(params)
-            result = client.update_tc(tc_id, tc_params)
+            result = _apply_tc_update(client, tc_id, tc_params, fabric_id, device_id, port_id)
             results[iface_name] = {"tc_id": tc_id, "status": "ok", "result": result}
         except Exception as e:
             errors.append(f"{iface_name}: {str(e)}")
@@ -719,6 +789,42 @@ def apply_wan_rules():
     })
 
 
+def _apply_tc_update(client, tc_id, tc_params, fabric_id=None, device_id=None, port_id=None):
+    """Try multiple API approaches to update a TC object.
+
+    1. Direct model tc update (POST /api/v1/model/tc/<id>)
+    2. Fabric-scoped tc update (POST /api/v1/model/fabric/<fid>/device/<did>/port/<pid>/tc/<tcid>)
+    3. PUT fallback in case the instance uses a different HTTP method
+    """
+    last_err = None
+
+    # Approach 1: Direct model tc update via POST (standard Fabric Studio)
+    try:
+        return client.update_tc(tc_id, tc_params)
+    except Exception as e:
+        last_err = e
+
+    # Approach 2: Fabric-scoped update if we have fabric/device/port context
+    if fabric_id and device_id and port_id:
+        try:
+            fields = list(tc_params.keys())
+            return client.post_update(
+                f"model/fabric/{fabric_id}/device/{device_id}/port/{port_id}/tc/{tc_id}",
+                tc_params,
+                update_fields=fields,
+            )
+        except Exception as e:
+            last_err = e
+
+    # Approach 3: Try PUT as fallback (some Fabric Studio versions may accept it)
+    try:
+        return client.put(f"model/tc/{tc_id}", tc_params)
+    except Exception:
+        pass
+
+    raise last_err
+
+
 @app.route("/api/clear", methods=["POST"])
 def clear_wan_rules():
     """Clear all WAN emulation rules from a device by resetting tc objects."""
@@ -729,6 +835,7 @@ def clear_wan_rules():
     data = request.json
     device_id = data.get("device_id") or data.get("router_id")
     device_type = data.get("device_type", "router")
+    fabric_id = data.get("fabric_id")
     interfaces = data.get("interfaces", [])
     port_ids = data.get("port_ids", {})
     tc_ids = data.get("tc_ids", {})
@@ -753,7 +860,7 @@ def clear_wan_rules():
                 errors.append(f"{iface_name}: no traffic control object found for port {port_id}")
                 continue
 
-            result = client.update_tc(tc_id, zero_params)
+            _apply_tc_update(client, tc_id, zero_params, fabric_id, device_id, port_id)
             results[iface_name] = {"tc_id": tc_id, "status": "ok"}
         except Exception as e:
             errors.append(f"{iface_name}: {str(e)}")

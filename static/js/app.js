@@ -465,6 +465,7 @@ async function handleApplyInterface(iface) {
         const result = await API.apply({
             device_id: state.selectedDevice.id,
             device_type: state.selectedDevice.type,
+            fabric_id: state.fabricId,
             interfaces: { [iface]: state.interfaceParams[iface] },
             port_ids,
             tc_ids,
@@ -499,6 +500,7 @@ async function handleClearInterface(iface) {
         await API.clear({
             device_id: state.selectedDevice.id,
             device_type: state.selectedDevice.type,
+            fabric_id: state.fabricId,
             interfaces: [iface],
             port_ids,
             tc_ids,
