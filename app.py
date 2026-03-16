@@ -261,7 +261,25 @@ class FabricStudioAPI:
         return None
 
     def update_tc(self, tc_id, data):
-        """Update a traffic control object via PUT on the model endpoint."""
+        """Update a traffic control object.
+
+        Fabric Studio ``model <x> update`` operations are typically exposed as
+        POST calls to ``/api/v1/model/<x>/<id>`` using ``object.<field>`` form
+        keys.  Some environments also accept JSON PUT on the same URL.
+        
+        Prefer form POST first (matches the official REST shell examples), then
+        fall back to JSON PUT for compatibility with older deployments.
+        """
+        form = {f"object.{key}": value for key, value in data.items()}
+
+        try:
+            return self.post_form(f"model/tc/{tc_id}", form)
+        except http_requests.exceptions.HTTPError as e:
+            # If this deployment does not allow POST for this endpoint,
+            # keep the previous PUT behavior as a fallback.
+            if e.response is not None and e.response.status_code != 405:
+                raise
+
         obj = {"id": tc_id, "__model": "model.trafficcontrol"}
         obj.update(data)
         return self.put(f"model/tc/{tc_id}", obj)
