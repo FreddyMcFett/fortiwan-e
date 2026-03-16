@@ -44,26 +44,61 @@ FortiWAN-E controls `tc netem` and `tc tbf` qdiscs on each Router port to emulat
 
 ### Option 1: Docker Compose (Recommended)
 
+**Prerequisites — Install Docker and Docker Compose:**
+
 ```bash
-git clone <repo-url> && cd fortiwan-e
+# Install Docker
+curl -fsSL https://get.docker.com | sh
+
+# Add your user to the docker group (log out and back in after)
+sudo usermod -aG docker $USER
+
+# Verify installation
+docker --version
+docker compose version
+```
+
+> Docker Compose v2 is included with Docker Engine. On older systems with
+> standalone `docker-compose`, replace `docker compose` with `docker-compose`.
+
+**Install and run FortiWAN-E:**
+
+```bash
+# Clone the repository
+git clone https://github.com/FreddyMcFett/fortiwan-e.git
+cd fortiwan-e
+
+# Start FortiWAN-E (builds the image automatically on first run)
 docker compose up -d
 ```
 
 The application will be available at `http://<your-ip>:5000`.
 
-To stop:
-```bash
-docker compose down
-```
+**Manage the container:**
 
-To rebuild after pulling updates:
 ```bash
+# Check status
+docker compose ps
+
+# View logs
+docker compose logs -f
+
+# Stop
+docker compose down
+
+# Rebuild after pulling updates
+git pull
 docker compose up -d --build
+
+# Restart
+docker compose restart
 ```
 
 ### Option 2: Docker Manual
 
 ```bash
+git clone https://github.com/FreddyMcFett/fortiwan-e.git
+cd fortiwan-e
 docker build -t fortiwane .
 docker run -d --name fortiwane -p 5000:5000 --restart unless-stopped fortiwane
 ```
@@ -73,7 +108,8 @@ docker run -d --name fortiwane -p 5000:5000 --restart unless-stopped fortiwane
 Supports Debian 10/11/12 and Ubuntu 18.04/20.04/22.04/24.04+.
 
 ```bash
-git clone <repo-url> && cd fortiwan-e
+git clone https://github.com/FreddyMcFett/fortiwan-e.git
+cd fortiwan-e
 chmod +x run.sh
 ./run.sh
 ```
