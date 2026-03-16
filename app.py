@@ -264,7 +264,7 @@ class FabricStudioAPI:
         """Update a traffic control object.
 
         Different Fabric Studio builds expose ``model tc update`` through
-        different REST routes/encodings. Try the explicit ``:update`` call
+        different REST routes/encodings. Try explicit update-call endpoints
         first, then fall back to object-instance routes.
         """
         obj = {"id": tc_id, "__model": "model.trafficcontrol"}
@@ -274,7 +274,12 @@ class FabricStudioAPI:
         attempts = [
             # CLI-style endpoint: model tc update <trafficcontrol> <OBJECT>
             ("POST", "model/tc:update", {"trafficcontrol": tc_id, "object": data}, None),
+            # Some builds use a shorter argument name.
+            ("POST", "model/tc:update", {"tc": tc_id, "object": data}, None),
             ("POST", "model/tc:update", None, {"trafficcontrol": tc_id, **form_fields}),
+            # Some deployments expose update with a slash instead of colon.
+            ("POST", "model/tc/update", {"trafficcontrol": tc_id, "object": data}, None),
+            ("POST", "model/tc/update", None, {"trafficcontrol": tc_id, **form_fields}),
             # Object-instance style endpoint
             ("POST", f"model/tc/{tc_id}", None, form_fields),
             ("PUT", f"model/tc/{tc_id}", obj, None),
@@ -291,9 +296,7 @@ class FabricStudioAPI:
             except http_requests.exceptions.HTTPError as e:
                 status = e.response.status_code if e.response is not None else "n/a"
                 errors.append(f"{method} {endpoint} -> {status}")
-                if e.response is not None and status < 500:
-                    continue
-                raise
+                continue
 
         raise Exception(
             "Failed to update traffic control object. Tried: " + "; ".join(errors)
