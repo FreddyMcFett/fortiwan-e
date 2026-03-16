@@ -95,25 +95,71 @@ class FabricStudioAPI:
 
     def get_routers(self, fabric_id=None):
         """Get routers with ports, optionally filtered by fabric."""
-        params = [("related-fields", "ports")]
+        params = [
+            ("related-fields", "ports"),
+            ("related-fields", "ports.wire"),
+        ]
         if fabric_id:
             params.append(("select", f"fabric={fabric_id}"))
         return self.get("model/router", params)
 
     def get_router_ports(self, router_id):
-        """Get ports for a specific router."""
-        return self.get("model/routerport", [("select", f"router={router_id}")])
+        """Get ports for a specific router, trying multiple API approaches."""
+        errors = []
+
+        # Approach 1: Query routerport model directly
+        try:
+            result = self.get("model/routerport", [("select", f"router={router_id}")])
+            objs = result.get("object", [])
+            if isinstance(objs, dict):
+                objs = [objs]
+            if objs:
+                return result
+        except Exception as e:
+            errors.append(f"routerport: {e}")
+
+        # Approach 2: Query router with related-fields=ports, extract from others
+        try:
+            result = self.get("model/router", [
+                ("select", f"id={router_id}"),
+                ("related-fields", "ports"),
+            ])
+            devices = _extract_devices(result, "router", "routerport")
+            if devices and devices[0].get("ports"):
+                return {"status": "done", "object": devices[0]["ports"]}
+        except Exception as e:
+            errors.append(f"router+related: {e}")
+
+        # Approach 3: Try generic port model
+        try:
+            result = self.get("model/port", [("select", f"router={router_id}")])
+            objs = result.get("object", [])
+            if isinstance(objs, dict):
+                objs = [objs]
+            if objs:
+                return result
+        except Exception as e:
+            errors.append(f"port: {e}")
+
+        # Nothing worked — return empty with error context
+        raise Exception(f"Could not fetch ports for router {router_id}. Tried: {'; '.join(errors)}")
 
     def get_switches(self, fabric_id=None):
         """Get switches with ports, optionally filtered by fabric."""
-        params = [("related-fields", "ports")]
+        params = [
+            ("related-fields", "ports"),
+            ("related-fields", "ports.wire"),
+        ]
         if fabric_id:
             params.append(("select", f"fabric={fabric_id}"))
         return self.get("model/switch", params)
 
     def get_vms(self, fabric_id=None):
         """Get VMs with ports, optionally filtered by fabric."""
-        params = [("related-fields", "ports")]
+        params = [
+            ("related-fields", "ports"),
+            ("related-fields", "ports.wire"),
+        ]
         if fabric_id:
             params.append(("select", f"fabric={fabric_id}"))
         return self.get("model/vm", params)
@@ -341,10 +387,26 @@ def get_topology(fabric_id):
         switches = client.get_switches(fabric_id)
         vms = client.get_vms(fabric_id)
 
+        router_devs = _extract_devices(routers, "router", "routerport")
+        switch_devs = _extract_devices(switches, "switch", "switchport")
+        vm_devs = _extract_devices(vms, "vm", "vmport")
+
+        # If routers have 0 ports, try fetching ports individually as fallback
+        for dev in router_devs:
+            if not dev["ports"]:
+                try:
+                    result = client.get_router_ports(dev["id"])
+                    objs = result.get("object", [])
+                    if isinstance(objs, dict):
+                        objs = [objs]
+                    dev["ports"] = [_make_port(p) for p in objs if isinstance(p, dict) and "id" in p]
+                except Exception:
+                    pass
+
         topology = {
-            "routers": _extract_devices(routers, "router", "routerport"),
-            "switches": _extract_devices(switches, "switch", "switchport"),
-            "vms": _extract_devices(vms, "vm", "vmport"),
+            "routers": router_devs,
+            "switches": switch_devs,
+            "vms": vm_devs,
         }
         return jsonify({"status": "ok", "topology": topology})
     except Exception as e:
@@ -374,6 +436,34 @@ def get_router_ports_route(router_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+def _find_port_others(others, port_model, device_type):
+    """Find port data in the others section, trying multiple key patterns."""
+    # Try exact model name, then common variations
+    candidates = [port_model, "port", f"{device_type}_port", f"{device_type}port"]
+    for key in candidates:
+        if key in others and isinstance(others[key], dict) and others[key]:
+            return others[key]
+
+    # Search all others for dicts whose entries reference the device_type
+    for key, val in others.items():
+        if key == "global" or not isinstance(val, dict) or not val:
+            continue
+        first_entry = next(iter(val.values()), None)
+        if isinstance(first_entry, dict) and device_type in first_entry:
+            return val
+
+    return {}
+
+
+def _make_port(port_data):
+    """Build a port dict from raw API port data."""
+    return {
+        "id": port_data["id"],
+        "name": port_data.get("name", port_data.get("nameid", f"port{port_data['id']}")),
+        "wire": port_data.get("wire"),
+    }
+
+
 def _extract_devices(result, device_type, port_model):
     """Extract device list from API result."""
     devices = []
@@ -382,8 +472,7 @@ def _extract_devices(result, device_type, port_model):
         objects = [objects]
     others = result.get("others", {})
 
-    # Port data from others section
-    port_others = others.get(port_model, {})
+    port_others = _find_port_others(others, port_model, device_type)
 
     for obj in objects:
         dev = {
@@ -392,15 +481,34 @@ def _extract_devices(result, device_type, port_model):
             "type": device_type,
             "ports": [],
         }
-        # Match ports to this device by parent ID
+
+        # Strategy 1: Match ports from others by parent device ID
         for port_id_str, port_data in port_others.items():
+            if not isinstance(port_data, dict):
+                continue
             parent_id = port_data.get(device_type)
             if parent_id == obj["id"]:
-                dev["ports"].append({
-                    "id": port_data["id"],
-                    "name": port_data.get("name", port_data.get("nameid", f"port{port_data['id']}")),
-                    "wire": port_data.get("wire"),
-                })
+                dev["ports"].append(_make_port(port_data))
+
+        # Strategy 2: Check inline ports on the object itself
+        if not dev["ports"] and "ports" in obj:
+            inline_ports = obj["ports"]
+            if isinstance(inline_ports, list):
+                for p in inline_ports:
+                    if isinstance(p, dict) and "id" in p:
+                        dev["ports"].append(_make_port(p))
+                    elif isinstance(p, (int, str)):
+                        # Port is just an ID — look it up in others
+                        port_data = port_others.get(str(p), port_others.get(int(p) if isinstance(p, str) else p, {}))
+                        if isinstance(port_data, dict) and "id" in port_data:
+                            dev["ports"].append(_make_port(port_data))
+                        else:
+                            dev["ports"].append({
+                                "id": int(p) if isinstance(p, str) else p,
+                                "name": f"port{p}",
+                                "wire": None,
+                            })
+
         devices.append(dev)
     return devices
 
