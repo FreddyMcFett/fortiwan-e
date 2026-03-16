@@ -1,24 +1,34 @@
 # FortiWAN-E
 
-Web-based WAN Emulator for Fortinet SD-WAN demos running on Fabric Studio.
+Web-based WAN Emulator for Fortinet SD-WAN demos on Fabric Studio.
 
-## How It Works
+## Architecture
 
-FortiWAN-E uses Fabric Studio's native **Router** devices as WAN emulators. Instead of inserting a separate VM into the traffic path, it applies Linux `tc` (traffic control) rules directly on Router interfaces via the Fabric Studio REST API.
-
-**Topology Example (2 ISPs):**
+FortiWAN-E runs as a **standalone web application** outside of Fabric Studio (on a separate machine, VM, or container). It connects to the Fabric Studio REST API over the network to apply Linux `tc` (traffic control) rules on native Router devices inside the fabric.
 
 ```
-                    +-------------------+
-                    |  Fabric Studio    |
-                    |                   |
-  Branch FGT ──── Router (ISP1) ──── HQ FGT / Internet
-       │            (tc rules)          │
-       └───────── Router (ISP2) ────────┘
-                   (tc rules)
++-----------------------------------------------------+
+|                   Fabric Studio (ESXi VM)            |
+|                                                      |
+|   Branch FGT ──── Router (ISP1) ──── HQ / Internet  |
+|        │           (tc rules)            │           |
+|        └────────── Router (ISP2) ────────┘           |
+|                    (tc rules)                        |
+|                                                      |
++---------------------------┬--------------------------+
+                            │ REST API (HTTPS)
+                            │
+               +────────────┴────────────+
+               │       FortiWAN-E        │
+               │  (Debian/Ubuntu/Docker) │
+               │    http://<ip>:5000     │
+               +─────────────────────────+
+                        ▲
+                        │ Browser
+                      Admin
 ```
 
-FortiWAN-E controls the `tc netem` and `tc tbf` qdiscs on each Router port to emulate:
+FortiWAN-E controls `tc netem` and `tc tbf` qdiscs on each Router port to emulate:
 
 | Parameter       | Range         | Description                    |
 |----------------|---------------|--------------------------------|
@@ -32,22 +42,41 @@ FortiWAN-E controls the `tc netem` and `tc tbf` qdiscs on each Router port to em
 
 ## Quick Start
 
-### Option 1: Direct Run (Debian/Ubuntu)
+### Option 1: Docker Compose (Recommended)
+
+```bash
+git clone <repo-url> && cd fortiwan-e
+docker compose up -d
+```
+
+The application will be available at `http://<your-ip>:5000`.
+
+To stop:
+```bash
+docker compose down
+```
+
+To rebuild after pulling updates:
+```bash
+docker compose up -d --build
+```
+
+### Option 2: Docker Manual
+
+```bash
+docker build -t fortiwane .
+docker run -d --name fortiwane -p 5000:5000 --restart unless-stopped fortiwane
+```
+
+### Option 3: Direct Run (Debian/Ubuntu)
+
+Supports Debian 10/11/12 and Ubuntu 18.04/20.04/22.04/24.04+.
 
 ```bash
 git clone <repo-url> && cd fortiwan-e
 chmod +x run.sh
 ./run.sh
 ```
-
-### Option 2: Docker
-
-```bash
-docker build -t fortiwane .
-docker run -p 5000:5000 fortiwane
-```
-
-Then open `http://<your-ip>:5000` in a browser.
 
 ## Usage
 
@@ -76,10 +105,10 @@ Then open `http://<your-ip>:5000` in a browser.
 2. Add **Router** devices as ISP1 and ISP2
 3. Wire FortiGate WAN ports to the Router ports
 4. Install the fabric
-5. Use FortiWAN-E to control WAN conditions on the Router interfaces
+5. Point FortiWAN-E at the Fabric Studio IP to control WAN conditions
 
 ## Requirements
 
-- Python 3.9+
-- Fabric Studio 2.0+ with REST API access
-- Router devices in your Fabric Studio topology
+- **FortiWAN-E host:** Debian/Ubuntu (any version) or Docker
+- **Fabric Studio:** 2.0+ with REST API access reachable from FortiWAN-E host
+- **Fabric topology:** Router devices acting as ISP links
