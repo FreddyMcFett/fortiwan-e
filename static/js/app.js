@@ -23,6 +23,11 @@ const API = {
     apply: (d) => API.request('POST', '/api/apply', d),
     clear: (d) => API.request('POST', '/api/clear', d),
     status: () => API.request('GET', '/api/status'),
+    debugRaw: async (endpoint, params) => {
+        const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+        const resp = await fetch(`/api/debug/raw/${endpoint}${qs}`);
+        return resp.json();
+    },
 };
 
 // State
@@ -151,8 +156,21 @@ async function handleLoadTopology() {
         renderTopology(data.topology);
         $('#topology-panel').classList.remove('hidden');
         $('#log-panel').classList.remove('hidden');
+
+        // Log port summary
+        const topo = data.topology;
+        const counts = [
+            `${(topo.routers || []).length} router(s)`,
+            `${(topo.switches || []).length} switch(es)`,
+            `${(topo.vms || []).length} VM(s)`,
+        ];
+        addLog(`Topology loaded: ${counts.join(', ')}`);
+        (topo.routers || []).forEach(r => {
+            addLog(`  Router "${r.name}": ${(r.ports || []).length} port(s)`);
+        });
     } catch (err) {
         toast('Failed to load topology: ' + err.message, 'error');
+        addLog('Topology load failed: ' + err.message, 'error');
     }
 }
 
@@ -209,15 +227,19 @@ async function selectRouter(router) {
     // Use ports from topology; if empty, fetch separately
     let ports = router.ports || [];
     if (ports.length === 0) {
+        addLog(`Router ${router.name} has 0 ports from topology, fetching individually...`);
         try {
             const data = await API.routerPorts(router.id);
             ports = data.ports || [];
-            // Update the topology device too
             router.ports = ports;
-            // Update port count in topology view
             if (el) {
                 const portsEl = el.querySelector('.topo-ports');
                 if (portsEl) portsEl.textContent = `${ports.length} port${ports.length !== 1 ? 's' : ''}`;
+            }
+            if (ports.length > 0) {
+                addLog(`Fetched ${ports.length} port(s) for ${router.name}`, 'success');
+            } else {
+                addLog(`Router ${router.name} still has 0 ports after individual fetch`, 'error');
             }
         } catch (err) {
             addLog(`Failed to fetch ports for ${router.name}: ${err.message}`, 'error');
