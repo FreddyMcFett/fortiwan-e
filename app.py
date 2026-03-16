@@ -282,12 +282,12 @@ class FabricStudioAPI:
     def update_tc(self, tc_id, data):
         """Update a traffic control object.
 
-        Fabric Studio REST API uses POST for updates (not PUT).
-        The ``update-fields`` parameter ensures only specified fields
-        are modified.
+        Tries POST first (Fabric Studio convention), then PUT as fallback.
         """
-        fields = [k for k in data.keys()]
-        return self.post_update(f"model/tc/{tc_id}", data, update_fields=fields)
+        try:
+            return self.post(f"model/tc/{tc_id}", data)
+        except Exception:
+            return self.put(f"model/tc/{tc_id}", data)
 
 
 # Global API client store
@@ -790,39 +790,8 @@ def apply_wan_rules():
 
 
 def _apply_tc_update(client, tc_id, tc_params, fabric_id=None, device_id=None, port_id=None):
-    """Try multiple API approaches to update a TC object.
-
-    1. Direct model tc update (POST /api/v1/model/tc/<id>)
-    2. Fabric-scoped tc update (POST /api/v1/model/fabric/<fid>/device/<did>/port/<pid>/tc/<tcid>)
-    3. PUT fallback in case the instance uses a different HTTP method
-    """
-    last_err = None
-
-    # Approach 1: Direct model tc update via POST (standard Fabric Studio)
-    try:
-        return client.update_tc(tc_id, tc_params)
-    except Exception as e:
-        last_err = e
-
-    # Approach 2: Fabric-scoped update if we have fabric/device/port context
-    if fabric_id and device_id and port_id:
-        try:
-            fields = list(tc_params.keys())
-            return client.post_update(
-                f"model/fabric/{fabric_id}/device/{device_id}/port/{port_id}/tc/{tc_id}",
-                tc_params,
-                update_fields=fields,
-            )
-        except Exception as e:
-            last_err = e
-
-    # Approach 3: Try PUT as fallback (some Fabric Studio versions may accept it)
-    try:
-        return client.put(f"model/tc/{tc_id}", tc_params)
-    except Exception:
-        pass
-
-    raise last_err
+    """Update a TC object via the model/tc endpoint."""
+    return client.update_tc(tc_id, tc_params)
 
 
 @app.route("/api/clear", methods=["POST"])
