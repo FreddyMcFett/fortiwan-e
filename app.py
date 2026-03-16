@@ -164,12 +164,68 @@ class FabricStudioAPI:
             params.append(("select", f"fabric={fabric_id}"))
         return self.get("model/vm", params)
 
+    def get_switch_ports(self, switch_id):
+        """Get ports for a specific switch."""
+        try:
+            result = self.get("model/switchport", [("select", f"switch={switch_id}")])
+            objs = result.get("object", [])
+            if isinstance(objs, dict):
+                objs = [objs]
+            if objs:
+                return result
+        except Exception:
+            pass
+        # Fallback: query switch with related-fields
+        try:
+            result = self.get("model/switch", [
+                ("select", f"id={switch_id}"),
+                ("related-fields", "ports"),
+            ])
+            devices = _extract_devices(result, "switch", "switchport")
+            if devices and devices[0].get("ports"):
+                return {"status": "done", "object": devices[0]["ports"]}
+        except Exception:
+            pass
+        raise Exception(f"Could not fetch ports for switch {switch_id}")
+
+    def get_vm_ports(self, vm_id):
+        """Get ports for a specific VM."""
+        try:
+            result = self.get("model/vmport", [("select", f"vm={vm_id}")])
+            objs = result.get("object", [])
+            if isinstance(objs, dict):
+                objs = [objs]
+            if objs:
+                return result
+        except Exception:
+            pass
+        # Fallback: query vm with related-fields
+        try:
+            result = self.get("model/vm", [
+                ("select", f"id={vm_id}"),
+                ("related-fields", "ports"),
+            ])
+            devices = _extract_devices(result, "vm", "vmport")
+            if devices and devices[0].get("ports"):
+                return {"status": "done", "object": devices[0]["ports"]}
+        except Exception:
+            pass
+        raise Exception(f"Could not fetch ports for VM {vm_id}")
+
     def update_router(self, router_id, data):
         """Update router properties via form POST."""
         form = {}
         for key, value in data.items():
             form[f"object.{key}"] = value
         return self.post_form(f"model/router/{router_id}", form)
+
+    def update_device(self, device_type, device_id, data):
+        """Update any device type properties via form POST."""
+        model = device_type  # router, switch, vm
+        form = {}
+        for key, value in data.items():
+            form[f"object.{key}"] = value
+        return self.post_form(f"model/{model}/{device_id}", form)
 
 
 # Global API client store
@@ -519,35 +575,69 @@ def get_presets():
     return jsonify({"status": "ok", "presets": WAN_PRESETS})
 
 
+@app.route("/api/device/<device_type>/<int:device_id>/ports", methods=["GET"])
+def get_device_ports_route(device_type, device_id):
+    """Get ports for any device type (router, switch, vm)."""
+    client = get_api_client()
+    if not client:
+        return jsonify({"status": "error", "message": "Not connected"}), 401
+    try:
+        if device_type == "router":
+            result = client.get_router_ports(device_id)
+        elif device_type == "switch":
+            result = client.get_switch_ports(device_id)
+        elif device_type == "vm":
+            result = client.get_vm_ports(device_id)
+        else:
+            return jsonify({"status": "error", "message": f"Unknown device type: {device_type}"}), 400
+        ports = []
+        objects = result.get("object", [])
+        if isinstance(objects, dict):
+            objects = [objects]
+        for p in objects:
+            if isinstance(p, dict) and "id" in p:
+                ports.append({
+                    "id": p["id"],
+                    "name": p.get("name", p.get("nameid", f"port{p['id']}")),
+                    "wire": p.get("wire"),
+                })
+        return jsonify({"status": "ok", "ports": ports})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 @app.route("/api/apply", methods=["POST"])
 def apply_wan_rules():
-    """Apply WAN emulation rules to a router.
+    """Apply WAN emulation rules to a device.
 
     Expects JSON:
     {
-        "router_id": 1,
+        "device_id": 1,
+        "device_type": "router",
         "interfaces": {
             "eth0": { "delay_ms": 50, "jitter_ms": 10, ... }
         }
     }
+    Also accepts legacy "router_id" field for backward compatibility.
     """
     client = get_api_client()
     if not client:
         return jsonify({"status": "error", "message": "Not connected"}), 401
 
     data = request.json
-    router_id = data.get("router_id")
+    device_id = data.get("device_id") or data.get("router_id")
+    device_type = data.get("device_type", "router")
     interfaces = data.get("interfaces", {})
 
-    if not router_id:
-        return jsonify({"status": "error", "message": "router_id is required"}), 400
+    if not device_id:
+        return jsonify({"status": "error", "message": "device_id is required"}), 400
 
     try:
         script = build_router_script(interfaces)
-        result = client.update_router(router_id, {"script": script})
+        result = client.update_device(device_type, device_id, {"script": script})
         return jsonify({
             "status": "ok",
-            "message": f"WAN rules applied to router {router_id}",
+            "message": f"WAN rules applied to {device_type} {device_id}",
             "script": script,
             "result": result,
         })
@@ -557,27 +647,28 @@ def apply_wan_rules():
 
 @app.route("/api/clear", methods=["POST"])
 def clear_wan_rules():
-    """Clear all WAN emulation rules from a router."""
+    """Clear all WAN emulation rules from a device."""
     client = get_api_client()
     if not client:
         return jsonify({"status": "error", "message": "Not connected"}), 401
 
     data = request.json
-    router_id = data.get("router_id")
+    device_id = data.get("device_id") or data.get("router_id")
+    device_type = data.get("device_type", "router")
     interfaces = data.get("interfaces", [])
 
-    if not router_id:
-        return jsonify({"status": "error", "message": "router_id is required"}), 400
+    if not device_id:
+        return jsonify({"status": "error", "message": "device_id is required"}), 400
 
     try:
         lines = []
         for iface in interfaces:
             lines.append(f"tc qdisc del dev {iface} root 2>/dev/null || true")
         script = "\n".join(lines)
-        result = client.update_router(router_id, {"script": script})
+        result = client.update_device(device_type, device_id, {"script": script})
         return jsonify({
             "status": "ok",
-            "message": f"WAN rules cleared on router {router_id}",
+            "message": f"WAN rules cleared on {device_type} {device_id}",
             "script": script,
             "result": result,
         })
