@@ -97,25 +97,6 @@ class FabricStudioAPI:
         resp.raise_for_status()
         return resp.json()
 
-    def post_update(self, endpoint, data=None, update_fields=None):
-        """POST request for updating an existing object.
-
-        Fabric Studio uses POST (not PUT) for updates — the URL includes the
-        object ID (e.g. model/tc/7).  The optional ``update-fields`` query
-        parameter tells the server which fields to persist.
-        """
-        params = {}
-        if update_fields:
-            params["update-fields"] = ",".join(update_fields)
-        resp = self.session.post(
-            f"{self.base_url}/api/v1/{endpoint}",
-            json=data,
-            params=params if params else None,
-            headers=self._headers(),
-        )
-        resp.raise_for_status()
-        return resp.json()
-
     def get_fabrics(self):
         """List all fabrics."""
         return self.get("model/fabric")
@@ -280,14 +261,44 @@ class FabricStudioAPI:
         return None
 
     def update_tc(self, tc_id, data):
-        """Update a traffic control object.
+        """Update a traffic control object via runtime tc update.
 
-        Fabric Studio REST API uses POST for updates (not PUT).
-        The ``update-fields`` parameter ensures only specified fields
-        are modified.
+        Mirrors the exact payload the Fabric Studio web UI sends::
+
+            POST /api/v1/runtime/tc
+            {
+              "command": "runtime tc update",
+              "arguments": {
+                "trafficcontrol": [<tc_id>],
+                "object": [{ "id": <tc_id>, ...fields...,
+                             "__model": "model.trafficcontrol" }],
+                "update_fields": [],
+                "related_fields": []
+              }
+            }
         """
-        fields = [k for k in data.keys()]
-        return self.post_update(f"model/tc/{tc_id}", data, update_fields=fields)
+        obj = {"id": tc_id, "__model": "model.trafficcontrol"}
+        obj.update(data)
+        payload = {
+            "command": "runtime tc update",
+            "arguments": {
+                "trafficcontrol": [tc_id],
+                "object": [obj],
+                "update_fields": [],
+                "related_fields": [],
+            },
+        }
+        # Try the command-dispatch format to /runtime/tc first,
+        # then fall back to the direct REST-style endpoint.
+        try:
+            return self.post("runtime/tc", payload)
+        except Exception:
+            pass
+        try:
+            return self.post(f"runtime/tc/{tc_id}", data)
+        except Exception:
+            pass
+        return self.post(f"model/tc/{tc_id}", data)
 
 
 # Global API client store
@@ -712,16 +723,19 @@ def _find_tc_for_port(client, port_id, tc_id_hint=None):
 
 
 def _build_tc_params(params):
-    """Convert our WAN emulation params to Fabric Studio tc model fields."""
+    """Convert our WAN emulation params to Fabric Studio tc model fields.
+
+    Field names and types match the real ``model.trafficcontrol`` object
+    as used by ``runtime tc update``.
+    """
     return {
         "delay": int(params.get("delay_ms", 0)),
         "jitter": int(params.get("jitter_ms", 0)),
         "loss": float(params.get("loss_percent", 0)),
-        "rate": int(params.get("bandwidth_kbit", 0)),
+        "bandwidth": int(params.get("bandwidth_kbit", 0)),
         "corrupt": float(params.get("corrupt_percent", 0)),
         "duplicate": float(params.get("duplicate_percent", 0)),
         "reorder": float(params.get("reorder_percent", 0)),
-        "correlation": float(params.get("correlation_percent", 0)),
     }
 
 
@@ -790,39 +804,8 @@ def apply_wan_rules():
 
 
 def _apply_tc_update(client, tc_id, tc_params, fabric_id=None, device_id=None, port_id=None):
-    """Try multiple API approaches to update a TC object.
-
-    1. Direct model tc update (POST /api/v1/model/tc/<id>)
-    2. Fabric-scoped tc update (POST /api/v1/model/fabric/<fid>/device/<did>/port/<pid>/tc/<tcid>)
-    3. PUT fallback in case the instance uses a different HTTP method
-    """
-    last_err = None
-
-    # Approach 1: Direct model tc update via POST (standard Fabric Studio)
-    try:
-        return client.update_tc(tc_id, tc_params)
-    except Exception as e:
-        last_err = e
-
-    # Approach 2: Fabric-scoped update if we have fabric/device/port context
-    if fabric_id and device_id and port_id:
-        try:
-            fields = list(tc_params.keys())
-            return client.post_update(
-                f"model/fabric/{fabric_id}/device/{device_id}/port/{port_id}/tc/{tc_id}",
-                tc_params,
-                update_fields=fields,
-            )
-        except Exception as e:
-            last_err = e
-
-    # Approach 3: Try PUT as fallback (some Fabric Studio versions may accept it)
-    try:
-        return client.put(f"model/tc/{tc_id}", tc_params)
-    except Exception:
-        pass
-
-    raise last_err
+    """Update a TC object via the model/tc endpoint."""
+    return client.update_tc(tc_id, tc_params)
 
 
 @app.route("/api/clear", methods=["POST"])
