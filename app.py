@@ -261,10 +261,43 @@ class FabricStudioAPI:
         return None
 
     def update_tc(self, tc_id, data):
-        """Update a traffic control object via PUT on the model endpoint."""
+        """Update a traffic control object.
+
+        Different Fabric Studio builds expose ``model tc update`` through
+        different REST routes/encodings. Try the explicit ``:update`` call
+        first, then fall back to object-instance routes.
+        """
         obj = {"id": tc_id, "__model": "model.trafficcontrol"}
         obj.update(data)
-        return self.put(f"model/tc/{tc_id}", obj)
+        form_fields = {f"object.{key}": value for key, value in data.items()}
+
+        attempts = [
+            # CLI-style endpoint: model tc update <trafficcontrol> <OBJECT>
+            ("POST", "model/tc:update", {"trafficcontrol": tc_id, "object": data}, None),
+            ("POST", "model/tc:update", None, {"trafficcontrol": tc_id, **form_fields}),
+            # Object-instance style endpoint
+            ("POST", f"model/tc/{tc_id}", None, form_fields),
+            ("PUT", f"model/tc/{tc_id}", obj, None),
+        ]
+
+        errors = []
+        for method, endpoint, json_data, form_data in attempts:
+            try:
+                if method == "POST":
+                    if json_data is not None:
+                        return self.post(endpoint, json_data)
+                    return self.post_form(endpoint, form_data)
+                return self.put(endpoint, json_data)
+            except http_requests.exceptions.HTTPError as e:
+                status = e.response.status_code if e.response is not None else "n/a"
+                errors.append(f"{method} {endpoint} -> {status}")
+                if e.response is not None and status < 500:
+                    continue
+                raise
+
+        raise Exception(
+            "Failed to update traffic control object. Tried: " + "; ".join(errors)
+        )
 
 
 # Global API client store
