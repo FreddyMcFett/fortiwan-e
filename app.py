@@ -97,25 +97,6 @@ class FabricStudioAPI:
         resp.raise_for_status()
         return resp.json()
 
-    def post_update(self, endpoint, data=None, update_fields=None):
-        """POST request for updating an existing object.
-
-        Fabric Studio uses POST (not PUT) for updates — the URL includes the
-        object ID (e.g. model/tc/7).  The optional ``update-fields`` query
-        parameter tells the server which fields to persist.
-        """
-        params = {}
-        if update_fields:
-            params["update-fields"] = ",".join(update_fields)
-        resp = self.session.post(
-            f"{self.base_url}/api/v1/{endpoint}",
-            json=data,
-            params=params if params else None,
-            headers=self._headers(),
-        )
-        resp.raise_for_status()
-        return resp.json()
-
     def get_fabrics(self):
         """List all fabrics."""
         return self.get("model/fabric")
@@ -280,14 +261,44 @@ class FabricStudioAPI:
         return None
 
     def update_tc(self, tc_id, data):
-        """Update a traffic control object.
+        """Update a traffic control object via runtime tc update.
 
-        Tries POST first (Fabric Studio convention), then PUT as fallback.
+        Mirrors the exact payload the Fabric Studio web UI sends::
+
+            POST /api/v1/runtime/tc
+            {
+              "command": "runtime tc update",
+              "arguments": {
+                "trafficcontrol": [<tc_id>],
+                "object": [{ "id": <tc_id>, ...fields...,
+                             "__model": "model.trafficcontrol" }],
+                "update_fields": [],
+                "related_fields": []
+              }
+            }
         """
+        obj = {"id": tc_id, "__model": "model.trafficcontrol"}
+        obj.update(data)
+        payload = {
+            "command": "runtime tc update",
+            "arguments": {
+                "trafficcontrol": [tc_id],
+                "object": [obj],
+                "update_fields": [],
+                "related_fields": [],
+            },
+        }
+        # Try the command-dispatch format to /runtime/tc first,
+        # then fall back to the direct REST-style endpoint.
         try:
-            return self.post(f"model/tc/{tc_id}", data)
+            return self.post("runtime/tc", payload)
         except Exception:
-            return self.put(f"model/tc/{tc_id}", data)
+            pass
+        try:
+            return self.post(f"runtime/tc/{tc_id}", data)
+        except Exception:
+            pass
+        return self.post(f"model/tc/{tc_id}", data)
 
 
 # Global API client store
@@ -712,16 +723,19 @@ def _find_tc_for_port(client, port_id, tc_id_hint=None):
 
 
 def _build_tc_params(params):
-    """Convert our WAN emulation params to Fabric Studio tc model fields."""
+    """Convert our WAN emulation params to Fabric Studio tc model fields.
+
+    Field names and types match the real ``model.trafficcontrol`` object
+    as used by ``runtime tc update``.
+    """
     return {
         "delay": int(params.get("delay_ms", 0)),
         "jitter": int(params.get("jitter_ms", 0)),
         "loss": float(params.get("loss_percent", 0)),
-        "rate": int(params.get("bandwidth_kbit", 0)),
+        "bandwidth": int(params.get("bandwidth_kbit", 0)),
         "corrupt": float(params.get("corrupt_percent", 0)),
         "duplicate": float(params.get("duplicate_percent", 0)),
         "reorder": float(params.get("reorder_percent", 0)),
-        "correlation": float(params.get("correlation_percent", 0)),
     }
 
 
