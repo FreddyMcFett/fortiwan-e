@@ -89,25 +89,16 @@ class FabricStudioAPI:
         resp.raise_for_status()
         return resp.json()
 
-    def patch(self, endpoint, data=None):
-        """PATCH request to API."""
-        resp = self.session.patch(
-            f"{self.base_url}/api/v1/{endpoint}",
-            json=data,
-            headers=self._headers(),
-        )
-        resp.raise_for_status()
-        return resp.json()
-
     def get_fabrics(self):
         """List all fabrics."""
         return self.get("model/fabric")
 
     def get_routers(self, fabric_id=None):
-        """Get routers with ports, optionally filtered by fabric."""
+        """Get routers with ports and tc, optionally filtered by fabric."""
         params = [
             ("related-fields", "ports"),
             ("related-fields", "ports.wire"),
+            ("related-fields", "ports.tc"),
         ]
         if fabric_id:
             params.append(("select", f"fabric={fabric_id}"))
@@ -155,20 +146,22 @@ class FabricStudioAPI:
         raise Exception(f"Could not fetch ports for router {router_id}. Tried: {'; '.join(errors)}")
 
     def get_switches(self, fabric_id=None):
-        """Get switches with ports, optionally filtered by fabric."""
+        """Get switches with ports and tc, optionally filtered by fabric."""
         params = [
             ("related-fields", "ports"),
             ("related-fields", "ports.wire"),
+            ("related-fields", "ports.tc"),
         ]
         if fabric_id:
             params.append(("select", f"fabric={fabric_id}"))
         return self.get("model/switch", params)
 
     def get_vms(self, fabric_id=None):
-        """Get VMs with ports, optionally filtered by fabric."""
+        """Get VMs with ports and tc, optionally filtered by fabric."""
         params = [
             ("related-fields", "ports"),
             ("related-fields", "ports.wire"),
+            ("related-fields", "ports.tc"),
         ]
         if fabric_id:
             params.append(("select", f"fabric={fabric_id}"))
@@ -229,15 +222,19 @@ class FabricStudioAPI:
             form[f"object.{key}"] = value
         return self.post_form(f"model/router/{router_id}", form)
 
-    def update_device(self, device_type, device_id, data):
-        """Update any device type. Routers use form POST, others use PATCH."""
-        if device_type == "router":
-            form = {}
-            for key, value in data.items():
-                form[f"object.{key}"] = value
-            return self.post_form(f"model/{device_type}/{device_id}", form)
-        else:
-            return self.patch(f"model/{device_type}/{device_id}", data)
+    def get_tc_for_port(self, port_id):
+        """Get the traffic control object for a specific port."""
+        result = self.get("model/tc", [("select", f"port={port_id}")])
+        objs = result.get("object", [])
+        if isinstance(objs, dict):
+            objs = [objs]
+        if objs:
+            return objs[0]
+        return None
+
+    def update_tc(self, tc_id, data):
+        """Update a traffic control object via JSON POST."""
+        return self.post(f"model/tc/{tc_id}", data)
 
 
 # Global API client store
@@ -525,11 +522,16 @@ def _find_port_others(others, port_model, device_type):
 
 def _make_port(port_data):
     """Build a port dict from raw API port data."""
-    return {
+    port = {
         "id": port_data["id"],
         "name": port_data.get("name", port_data.get("nameid", f"port{port_data['id']}")),
         "wire": port_data.get("wire"),
     }
+    # Include tc (traffic control) ID if available
+    tc = port_data.get("tc")
+    if tc is not None:
+        port["tc"] = tc
+    return port
 
 
 def _extract_devices(result, device_type, port_model):
@@ -618,19 +620,47 @@ def get_device_ports_route(device_type, device_id):
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+def _find_tc_for_port(client, port_id, tc_id_hint=None):
+    """Find the traffic control object for a port.
+
+    Uses tc_id_hint if provided (from topology data), otherwise queries the API.
+    """
+    if tc_id_hint:
+        return tc_id_hint
+    tc_obj = client.get_tc_for_port(port_id)
+    if tc_obj:
+        return tc_obj["id"]
+    return None
+
+
+def _build_tc_params(params):
+    """Convert our WAN emulation params to Fabric Studio tc model fields."""
+    return {
+        "delay": int(params.get("delay_ms", 0)),
+        "jitter": int(params.get("jitter_ms", 0)),
+        "loss": float(params.get("loss_percent", 0)),
+        "rate": int(params.get("bandwidth_kbit", 0)),
+        "corrupt": float(params.get("corrupt_percent", 0)),
+        "duplicate": float(params.get("duplicate_percent", 0)),
+        "reorder": float(params.get("reorder_percent", 0)),
+        "correlation": float(params.get("correlation_percent", 0)),
+    }
+
+
 @app.route("/api/apply", methods=["POST"])
 def apply_wan_rules():
-    """Apply WAN emulation rules to a device.
+    """Apply WAN emulation rules to a device via the tc (traffic control) model.
 
     Expects JSON:
     {
         "device_id": 1,
         "device_type": "router",
         "interfaces": {
-            "eth0": { "delay_ms": 50, "jitter_ms": 10, ... }
-        }
+            "port1": { "delay_ms": 50, "jitter_ms": 10, ... }
+        },
+        "port_ids": { "port1": 42 },
+        "tc_ids": { "port1": 7 }
     }
-    Also accepts legacy "router_id" field for backward compatibility.
     """
     client = get_api_client()
     if not client:
@@ -640,26 +670,48 @@ def apply_wan_rules():
     device_id = data.get("device_id") or data.get("router_id")
     device_type = data.get("device_type", "router")
     interfaces = data.get("interfaces", {})
+    port_ids = data.get("port_ids", {})
+    tc_ids = data.get("tc_ids", {})
 
     if not device_id:
         return jsonify({"status": "error", "message": "device_id is required"}), 400
 
-    try:
-        script = build_router_script(interfaces)
-        result = client.update_device(device_type, device_id, {"script": script})
-        return jsonify({
-            "status": "ok",
-            "message": f"WAN rules applied to {device_type} {device_id}",
-            "script": script,
-            "result": result,
-        })
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+    results = {}
+    errors = []
+    for iface_name, params in interfaces.items():
+        port_id = port_ids.get(iface_name)
+        tc_id_hint = tc_ids.get(iface_name)
+
+        if not port_id:
+            errors.append(f"{iface_name}: no port_id provided")
+            continue
+
+        try:
+            tc_id = _find_tc_for_port(client, port_id, tc_id_hint)
+            if not tc_id:
+                errors.append(f"{iface_name}: no traffic control object found for port {port_id}")
+                continue
+
+            tc_params = _build_tc_params(params)
+            result = client.update_tc(tc_id, tc_params)
+            results[iface_name] = {"tc_id": tc_id, "status": "ok", "result": result}
+        except Exception as e:
+            errors.append(f"{iface_name}: {str(e)}")
+
+    if errors and not results:
+        return jsonify({"status": "error", "message": "; ".join(errors)}), 500
+
+    return jsonify({
+        "status": "ok",
+        "message": f"WAN rules applied to {device_type} {device_id}",
+        "results": results,
+        "errors": errors,
+    })
 
 
 @app.route("/api/clear", methods=["POST"])
 def clear_wan_rules():
-    """Clear all WAN emulation rules from a device."""
+    """Clear all WAN emulation rules from a device by resetting tc objects."""
     client = get_api_client()
     if not client:
         return jsonify({"status": "error", "message": "Not connected"}), 401
@@ -668,24 +720,43 @@ def clear_wan_rules():
     device_id = data.get("device_id") or data.get("router_id")
     device_type = data.get("device_type", "router")
     interfaces = data.get("interfaces", [])
+    port_ids = data.get("port_ids", {})
+    tc_ids = data.get("tc_ids", {})
 
     if not device_id:
         return jsonify({"status": "error", "message": "device_id is required"}), 400
 
-    try:
-        lines = []
-        for iface in interfaces:
-            lines.append(f"tc qdisc del dev {iface} root 2>/dev/null || true")
-        script = "\n".join(lines)
-        result = client.update_device(device_type, device_id, {"script": script})
-        return jsonify({
-            "status": "ok",
-            "message": f"WAN rules cleared on {device_type} {device_id}",
-            "script": script,
-            "result": result,
-        })
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
+    zero_params = _build_tc_params({})
+    results = {}
+    errors = []
+    for iface_name in interfaces:
+        port_id = port_ids.get(iface_name)
+        tc_id_hint = tc_ids.get(iface_name)
+
+        if not port_id:
+            errors.append(f"{iface_name}: no port_id provided")
+            continue
+
+        try:
+            tc_id = _find_tc_for_port(client, port_id, tc_id_hint)
+            if not tc_id:
+                errors.append(f"{iface_name}: no traffic control object found for port {port_id}")
+                continue
+
+            result = client.update_tc(tc_id, zero_params)
+            results[iface_name] = {"tc_id": tc_id, "status": "ok"}
+        except Exception as e:
+            errors.append(f"{iface_name}: {str(e)}")
+
+    if errors and not results:
+        return jsonify({"status": "error", "message": "; ".join(errors)}), 500
+
+    return jsonify({
+        "status": "ok",
+        "message": f"WAN rules cleared on {device_type} {device_id}",
+        "results": results,
+        "errors": errors,
+    })
 
 
 @app.route("/api/status", methods=["GET"])

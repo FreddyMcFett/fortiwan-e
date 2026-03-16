@@ -39,6 +39,7 @@ const state = {
     selectedDevice: null,
     presets: {},
     interfaceParams: {},
+    portMap: {},       // Maps port name -> { id, tc } for the selected device
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -229,6 +230,7 @@ async function selectDevice(device) {
         if (el) el.classList.remove('selected');
         state.selectedDevice = null;
         state.interfaceParams = {};
+        state.portMap = {};
         $('#emulator-panel').classList.add('hidden');
         addLog(`Deselected ${device.name}`);
         return;
@@ -240,6 +242,7 @@ async function selectDevice(device) {
 
     state.selectedDevice = device;
     state.interfaceParams = {};
+    state.portMap = {};
 
     // Use ports from topology; if empty, fetch separately
     let ports = device.ports || [];
@@ -266,6 +269,7 @@ async function selectDevice(device) {
     ports.forEach(p => {
         const name = p.name || `eth${p.id}`;
         state.interfaceParams[name] = defaultParams();
+        state.portMap[name] = { id: p.id, tc: p.tc || null };
     });
 
     renderEmulator(device);
@@ -452,14 +456,24 @@ async function handleApplyInterface(iface) {
     if (btn) { btn.disabled = true; btn.textContent = 'Applying...'; }
 
     try {
+        const portInfo = state.portMap[iface] || {};
+        const port_ids = {};
+        const tc_ids = {};
+        if (portInfo.id) port_ids[iface] = portInfo.id;
+        if (portInfo.tc) tc_ids[iface] = portInfo.tc;
+
         const result = await API.apply({
             device_id: state.selectedDevice.id,
             device_type: state.selectedDevice.type,
             interfaces: { [iface]: state.interfaceParams[iface] },
+            port_ids,
+            tc_ids,
         });
         toast(`Rules applied to ${iface}`, 'success');
         addLog(`Rules applied to ${state.selectedDevice.name} / ${iface}`, 'success');
-        if (result.script) addLog(`Script: ${result.script}`);
+        if (result.errors && result.errors.length) {
+            result.errors.forEach(e => addLog(`Warning: ${e}`, 'error'));
+        }
     } catch (err) {
         toast(`Failed: ${err.message}`, 'error');
         addLog(`Error applying to ${iface}: ${err.message}`, 'error');
@@ -476,10 +490,18 @@ async function handleClearInterface(iface) {
     if (btn) btn.disabled = true;
 
     try {
+        const portInfo = state.portMap[iface] || {};
+        const port_ids = {};
+        const tc_ids = {};
+        if (portInfo.id) port_ids[iface] = portInfo.id;
+        if (portInfo.tc) tc_ids[iface] = portInfo.tc;
+
         await API.clear({
             device_id: state.selectedDevice.id,
             device_type: state.selectedDevice.type,
             interfaces: [iface],
+            port_ids,
+            tc_ids,
         });
 
         // Reset params
