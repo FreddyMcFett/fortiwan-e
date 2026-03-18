@@ -397,10 +397,10 @@ function createInterfaceCard(iface, params) {
         <div class="iface-body">
             ${slider(iface, 'delay_ms', 'Delay', params.delay_ms, 0, 2000, 1, 'ms')}
             ${slider(iface, 'jitter_ms', 'Jitter', params.jitter_ms, 0, 500, 1, 'ms')}
-            ${slider(iface, 'loss_percent', 'Packet Loss', params.loss_percent, 0, 100, 0.1, '%')}
-            ${slider(iface, 'corrupt_percent', 'Corruption', params.corrupt_percent, 0, 50, 0.1, '%')}
-            ${slider(iface, 'duplicate_percent', 'Duplicates', params.duplicate_percent, 0, 50, 0.1, '%')}
-            ${slider(iface, 'reorder_percent', 'Reorder', params.reorder_percent, 0, 50, 0.1, '%')}
+            ${slider(iface, 'loss_percent', 'Packet Loss', params.loss_percent, 0, 100, 1, '%')}
+            ${slider(iface, 'corrupt_percent', 'Corruption', params.corrupt_percent, 0, 100, 1, '%')}
+            ${slider(iface, 'duplicate_percent', 'Duplicates', params.duplicate_percent, 0, 100, 1, '%')}
+            ${slider(iface, 'reorder_percent', 'Reorder', params.reorder_percent, 0, 100, 1, '%')}
             ${slider(iface, 'bandwidth_kbit', 'Bandwidth Limit', params.bandwidth_kbit, 0, 1000000, 100, 'kbit/s', true)}
         </div>
     `;

@@ -228,12 +228,12 @@ class FabricStudioAPI:
     def update_tc(self, tc_id, data, fabric_id, device_id, port_id):
         """Update a traffic control object.
 
-        Uses the fabric-scoped endpoint:
-        PATCH /api/v1/model/fabric/{fabric}/device/{device}/port/{port}/tc
+        Matches the Fabric Studio command format:
+        command: model fabric device port tc update
         """
-        obj = {"id": tc_id}
+        obj = {"id": tc_id, "__model": "model.trafficcontrol"}
         obj.update(data)
-        update_fields = ",".join(data.keys())
+        update_fields = [",".join(data.keys())]
         payload = {
             "object": obj,
             "update_fields": update_fields,
@@ -244,8 +244,16 @@ class FabricStudioAPI:
             payload,
         )
 
-    def sync_tc(self, device_id, port_id):
-        """Sync runtime traffic control from the model values."""
+    def sync_tc(self, tc_id):
+        """Sync runtime traffic control from the model values.
+
+        Uses runtime/tc/{id}:sync which matches the Fabric Studio command:
+        command: runtime tc sync
+        """
+        return self.post(f"runtime/tc/{tc_id}:sync")
+
+    def sync_tc_by_port(self, device_id, port_id):
+        """Sync runtime traffic control via device/port path (fallback)."""
         return self.post(f"runtime/device/{device_id}/port/{port_id}/tc:sync")
 
     def force_tc(self, device_id, port_id):
@@ -352,13 +360,13 @@ WAN_PRESETS = {
     },
     "broadband": {
         "label": "Broadband (Cable/DSL)",
-        "delay_ms": 20, "jitter_ms": 5, "loss_percent": 0.1,
+        "delay_ms": 20, "jitter_ms": 5, "loss_percent": 1,
         "bandwidth_kbit": 50000, "corrupt_percent": 0,
         "duplicate_percent": 0, "reorder_percent": 0,
     },
     "4g_lte": {
         "label": "4G LTE",
-        "delay_ms": 50, "jitter_ms": 15, "loss_percent": 0.5,
+        "delay_ms": 50, "jitter_ms": 15, "loss_percent": 1,
         "bandwidth_kbit": 30000, "corrupt_percent": 0,
         "duplicate_percent": 0, "reorder_percent": 0,
     },
@@ -377,7 +385,7 @@ WAN_PRESETS = {
     "congested": {
         "label": "Congested Network",
         "delay_ms": 80, "jitter_ms": 60, "loss_percent": 5,
-        "bandwidth_kbit": 2000, "corrupt_percent": 0.5,
+        "bandwidth_kbit": 2000, "corrupt_percent": 1,
         "duplicate_percent": 1, "reorder_percent": 2,
     },
     "mpls": {
@@ -719,14 +727,15 @@ def _build_tc_params(params, field_names=None):
     bandwidth_kbit = int(params.get("bandwidth_kbit", 0))
 
     # Map of canonical name -> (value to send)
+    # All TC fields are integers in Fabric Studio (no decimals)
     values = {
         "delay": int(params.get("delay_ms", 0)),
         "jitter": int(params.get("jitter_ms", 0)),
-        "loss": float(params.get("loss_percent", 0)),
+        "loss": int(params.get("loss_percent", 0)),
         "bandwidth": bandwidth_kbit * 1000,
-        "corrupt": float(params.get("corrupt_percent", 0)),
-        "duplicate": float(params.get("duplicate_percent", 0)),
-        "reorder": float(params.get("reorder_percent", 0)),
+        "corrupt": int(params.get("corrupt_percent", 0)),
+        "duplicate": int(params.get("duplicate_percent", 0)),
+        "reorder": int(params.get("reorder_percent", 0)),
     }
 
     # Only include fields that have a known API field name
@@ -746,7 +755,7 @@ def _tc_to_ui_params(tc_obj):
         for n in names:
             if n in tc_obj:
                 try:
-                    return float(tc_obj[n])
+                    return int(tc_obj[n])
                 except (TypeError, ValueError):
                     pass
         return default
@@ -889,16 +898,20 @@ def _apply_tc_update(client, tc_id, tc_params, fabric_id, device_id, port_id):
     """
     result = client.update_tc(tc_id, tc_params, fabric_id, device_id, port_id)
 
-    # Sync runtime from the updated model so changes take effect immediately
+    # Sync runtime from the updated model so changes take effect immediately.
+    # Use runtime/tc/{id}:sync (matches Fabric Studio's own sync command).
     sync_error = None
     try:
-        client.sync_tc(device_id, port_id)
+        client.sync_tc(tc_id)
     except Exception as e:
-        # sync failed — try force as fallback
+        # Fallback: try device/port sync, then force
         try:
-            client.force_tc(device_id, port_id)
-        except Exception as e2:
-            sync_error = f"sync failed: {e}; force failed: {e2}"
+            client.sync_tc_by_port(device_id, port_id)
+        except Exception:
+            try:
+                client.force_tc(device_id, port_id)
+            except Exception as e2:
+                sync_error = f"sync failed: {e}; force failed: {e2}"
 
     return {"model_result": result, "sync_error": sync_error}
 
