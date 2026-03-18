@@ -306,6 +306,10 @@ class FabricStudioAPI:
         obj.update(data)
         return self.put(f"model/tc/{tc_id}", obj)
 
+    def force_tc(self, device_id, port_id):
+        """Reapply traffic control on a port via the runtime endpoint."""
+        return self.post(f"runtime/device/{device_id}/port/{port_id}/tc:force")
+
 
 # Global API client store
 api_clients = {}
@@ -810,9 +814,15 @@ def apply_wan_rules():
 
 
 def _apply_tc_update(client, tc_id, tc_params, fabric_id=None, device_id=None, port_id=None):
-    """Update a TC object via the fabric-scoped PATCH endpoint."""
-    return client.update_tc(tc_id, tc_params, fabric_id=fabric_id,
-                            device_id=device_id, port_id=port_id)
+    """Update a TC object and force-apply to the running device."""
+    result = client.update_tc(tc_id, tc_params, fabric_id=fabric_id,
+                              device_id=device_id, port_id=port_id)
+    if device_id is not None and port_id is not None:
+        try:
+            client.force_tc(device_id, port_id)
+        except Exception:
+            pass  # Best-effort; the model update already succeeded
+    return result
 
 
 @app.route("/api/clear", methods=["POST"])
