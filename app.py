@@ -678,7 +678,9 @@ def _resolve_tc_field_names(tc_obj):
     """Discover actual API field names from a TC object.
 
     Returns a dict mapping our canonical names to the real API field names
-    found in *tc_obj*.  Falls back to the canonical name when no match.
+    found in *tc_obj*.  Only includes fields that actually exist in the TC
+    object — unknown fields are omitted so we don't send them to the API
+    (which would cause 400 errors).
     """
     candidates = {
         "delay": ["delay", "delay_ms"],
@@ -695,8 +697,6 @@ def _resolve_tc_field_names(tc_obj):
             if opt in tc_obj:
                 mapping[canonical] = opt
                 break
-        if canonical not in mapping:
-            mapping[canonical] = canonical
     return mapping
 
 
@@ -705,22 +705,31 @@ def _build_tc_params(params, field_names=None):
 
     *field_names* is an optional mapping from canonical names to the actual
     API field names (as returned by ``_resolve_tc_field_names``).  When
-    provided the payload uses the API's real field names so the update is
-    accepted.
+    provided, only fields present in the mapping are included so we don't
+    send unknown fields to the API (which would cause 400 errors).
     """
     if field_names is None:
         field_names = {k: k for k in ("delay", "jitter", "loss", "bandwidth",
                                        "corrupt", "duplicate", "reorder")}
     bandwidth_kbit = int(params.get("bandwidth_kbit", 0))
-    return {
-        field_names["delay"]: int(params.get("delay_ms", 0)),
-        field_names["jitter"]: int(params.get("jitter_ms", 0)),
-        field_names["loss"]: float(params.get("loss_percent", 0)),
-        field_names["bandwidth"]: bandwidth_kbit * 1000,
-        field_names["corrupt"]: float(params.get("corrupt_percent", 0)),
-        field_names["duplicate"]: float(params.get("duplicate_percent", 0)),
-        field_names["reorder"]: float(params.get("reorder_percent", 0)),
+
+    # Map of canonical name -> (value to send)
+    values = {
+        "delay": int(params.get("delay_ms", 0)),
+        "jitter": int(params.get("jitter_ms", 0)),
+        "loss": float(params.get("loss_percent", 0)),
+        "bandwidth": bandwidth_kbit * 1000,
+        "corrupt": float(params.get("corrupt_percent", 0)),
+        "duplicate": float(params.get("duplicate_percent", 0)),
+        "reorder": float(params.get("reorder_percent", 0)),
     }
+
+    # Only include fields that have a known API field name
+    result = {}
+    for canonical, value in values.items():
+        if canonical in field_names:
+            result[field_names[canonical]] = value
+    return result
 
 
 def _tc_to_ui_params(tc_obj):

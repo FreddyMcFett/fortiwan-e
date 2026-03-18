@@ -629,9 +629,15 @@ function addLog(msg, type = '') {
 // --- Toast ---
 
 function toast(msg, type = 'success') {
+    let container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
     const el = document.createElement('div');
     el.className = `toast toast-${type}`;
     el.textContent = msg;
-    document.body.appendChild(el);
+    container.appendChild(el);
     setTimeout(() => el.remove(), 3000);
 }
