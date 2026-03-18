@@ -77,26 +77,6 @@ class FabricStudioAPI:
         resp.raise_for_status()
         return resp.json()
 
-    def post_form(self, endpoint, form_data=None):
-        """POST request with form-encoded data."""
-        resp = self.session.post(
-            f"{self.base_url}/api/v1/{endpoint}",
-            data=form_data,
-            headers=self._headers(),
-        )
-        resp.raise_for_status()
-        return resp.json()
-
-    def put(self, endpoint, data=None):
-        """PUT request to API."""
-        resp = self.session.put(
-            f"{self.base_url}/api/v1/{endpoint}",
-            json=data,
-            headers=self._headers(),
-        )
-        resp.raise_for_status()
-        return resp.json()
-
     def patch(self, endpoint, data=None):
         """PATCH request to API."""
         resp = self.session.patch(
@@ -112,11 +92,10 @@ class FabricStudioAPI:
         return self.get("model/fabric")
 
     def get_routers(self, fabric_id=None):
-        """Get routers with ports and tc, optionally filtered by fabric."""
+        """Get routers with ports, optionally filtered by fabric."""
         params = [
-            ("related-fields", "ports"),
-            ("related-fields", "ports.wire"),
-            ("related-fields", "ports.tc"),
+            ("related_fields", "ports"),
+            ("related_fields", "ports.cable"),
         ]
         if fabric_id:
             params.append(("select", f"fabric={fabric_id}"))
@@ -128,7 +107,7 @@ class FabricStudioAPI:
 
         # Approach 1: Query routerport model directly
         try:
-            result = self.get("model/routerport", [("select", f"router={router_id}")])
+            result = self.get("model/router/port", [("select", f"device={router_id}")])
             objs = result.get("object", [])
             if isinstance(objs, dict):
                 objs = [objs]
@@ -137,11 +116,11 @@ class FabricStudioAPI:
         except Exception as e:
             errors.append(f"routerport: {e}")
 
-        # Approach 2: Query router with related-fields=ports, extract from others
+        # Approach 2: Query router with related_fields=ports, extract from others
         try:
             result = self.get("model/router", [
                 ("select", f"id={router_id}"),
-                ("related-fields", "ports"),
+                ("related_fields", "ports"),
             ])
             devices = _extract_devices(result, "router", "routerport")
             if devices and devices[0].get("ports"):
@@ -149,37 +128,24 @@ class FabricStudioAPI:
         except Exception as e:
             errors.append(f"router+related: {e}")
 
-        # Approach 3: Try generic port model
-        try:
-            result = self.get("model/port", [("select", f"router={router_id}")])
-            objs = result.get("object", [])
-            if isinstance(objs, dict):
-                objs = [objs]
-            if objs:
-                return result
-        except Exception as e:
-            errors.append(f"port: {e}")
-
         # Nothing worked — return empty with error context
         raise Exception(f"Could not fetch ports for router {router_id}. Tried: {'; '.join(errors)}")
 
     def get_switches(self, fabric_id=None):
-        """Get switches with ports and tc, optionally filtered by fabric."""
+        """Get switches with ports, optionally filtered by fabric."""
         params = [
-            ("related-fields", "ports"),
-            ("related-fields", "ports.wire"),
-            ("related-fields", "ports.tc"),
+            ("related_fields", "ports"),
+            ("related_fields", "ports.cable"),
         ]
         if fabric_id:
             params.append(("select", f"fabric={fabric_id}"))
         return self.get("model/switch", params)
 
     def get_vms(self, fabric_id=None):
-        """Get VMs with ports and tc, optionally filtered by fabric."""
+        """Get VMs with ports, optionally filtered by fabric."""
         params = [
-            ("related-fields", "ports"),
-            ("related-fields", "ports.wire"),
-            ("related-fields", "ports.tc"),
+            ("related_fields", "ports"),
+            ("related_fields", "ports.cable"),
         ]
         if fabric_id:
             params.append(("select", f"fabric={fabric_id}"))
@@ -188,7 +154,7 @@ class FabricStudioAPI:
     def get_switch_ports(self, switch_id):
         """Get ports for a specific switch."""
         try:
-            result = self.get("model/switchport", [("select", f"switch={switch_id}")])
+            result = self.get("model/switch/port", [("select", f"device={switch_id}")])
             objs = result.get("object", [])
             if isinstance(objs, dict):
                 objs = [objs]
@@ -200,7 +166,7 @@ class FabricStudioAPI:
         try:
             result = self.get("model/switch", [
                 ("select", f"id={switch_id}"),
-                ("related-fields", "ports"),
+                ("related_fields", "ports"),
             ])
             devices = _extract_devices(result, "switch", "switchport")
             if devices and devices[0].get("ports"):
@@ -212,7 +178,7 @@ class FabricStudioAPI:
     def get_vm_ports(self, vm_id):
         """Get ports for a specific VM."""
         try:
-            result = self.get("model/vmport", [("select", f"vm={vm_id}")])
+            result = self.get("model/vm/port", [("select", f"device={vm_id}")])
             objs = result.get("object", [])
             if isinstance(objs, dict):
                 objs = [objs]
@@ -224,7 +190,7 @@ class FabricStudioAPI:
         try:
             result = self.get("model/vm", [
                 ("select", f"id={vm_id}"),
-                ("related-fields", "ports"),
+                ("related_fields", "ports"),
             ])
             devices = _extract_devices(result, "vm", "vmport")
             if devices and devices[0].get("ports"):
@@ -234,77 +200,49 @@ class FabricStudioAPI:
         raise Exception(f"Could not fetch ports for VM {vm_id}")
 
     def update_router(self, router_id, data):
-        """Update router properties via form POST."""
-        form = {}
-        for key, value in data.items():
-            form[f"object.{key}"] = value
-        return self.post_form(f"model/router/{router_id}", form)
+        """Update router properties via PATCH."""
+        payload = {
+            "object": {"id": router_id, **data},
+            "update_fields": ",".join(data.keys()),
+            "related_fields": [],
+        }
+        return self.patch(f"model/router/{router_id}", payload)
 
-    def get_tc_for_port(self, port_id):
+    def get_tc_for_port(self, fabric_id, device_id, port_id):
         """Get the traffic control object for a specific port.
 
-        Tries filtering by port ID.  The TC model's field referencing the
-        port is called ``port`` in Fabric Studio's data model.
+        Uses the fabric-scoped endpoint:
+        GET /api/v1/model/fabric/{fabric}/device/{device}/port/{port}/tc
         """
         try:
-            result = self.get("model/tc", [("select", f"port={port_id}")])
-            objs = result.get("object", [])
-            if isinstance(objs, dict):
-                objs = [objs]
-            if objs:
-                return objs[0]
+            result = self.get(f"model/fabric/{fabric_id}/device/{device_id}/port/{port_id}/tc")
+            obj = result.get("object")
+            if isinstance(obj, dict) and "id" in obj:
+                return obj
+            if isinstance(obj, list) and obj:
+                return obj[0]
         except Exception:
             pass
-
-        # Fallback: list all TCs and filter client-side
-        try:
-            result = self.get("model/tc")
-            objs = result.get("object", [])
-            if isinstance(objs, dict):
-                objs = [objs]
-            for tc in objs:
-                if isinstance(tc, dict) and tc.get("port") == port_id:
-                    return tc
-        except Exception:
-            pass
-
         return None
 
-    def update_tc(self, tc_id, data, fabric_id=None, device_id=None, port_id=None):
+    def update_tc(self, tc_id, data, fabric_id, device_id, port_id):
         """Update a traffic control object.
 
         Uses the fabric-scoped endpoint:
         PATCH /api/v1/model/fabric/{fabric}/device/{device}/port/{port}/tc
-
-        When fabric_id, device_id, and port_id are provided the fabric-scoped
-        PATCH endpoint is used.  Falls back to legacy model/tc/{id} paths when
-        the scoping parameters are missing.
         """
-        if fabric_id is not None and device_id is not None and port_id is not None:
-            obj = {"id": tc_id}
-            obj.update(data)
-            update_fields = ",".join(data.keys())
-            payload = {
-                "object": obj,
-                "update_fields": update_fields,
-                "related_fields": [],
-            }
-            return self.patch(
-                f"model/fabric/{fabric_id}/device/{device_id}/port/{port_id}/tc",
-                payload,
-            )
-
-        # Legacy fallback when scoping parameters are not available
-        form = {f"object.{key}": value for key, value in data.items()}
-        try:
-            return self.post_form(f"model/tc/{tc_id}", form)
-        except http_requests.exceptions.HTTPError as e:
-            if e.response is not None and e.response.status_code != 405:
-                raise
-
-        obj = {"id": tc_id, "__model": "model.trafficcontrol"}
+        obj = {"id": tc_id}
         obj.update(data)
-        return self.put(f"model/tc/{tc_id}", obj)
+        update_fields = ",".join(data.keys())
+        payload = {
+            "object": obj,
+            "update_fields": update_fields,
+            "related_fields": [],
+        }
+        return self.patch(
+            f"model/fabric/{fabric_id}/device/{device_id}/port/{port_id}/tc",
+            payload,
+        )
 
     def force_tc(self, device_id, port_id):
         """Reapply traffic control on a port via the runtime endpoint."""
@@ -568,7 +506,7 @@ def get_router_ports_route(router_id):
             ports.append({
                 "id": p["id"],
                 "name": p.get("name", p.get("nameid", f"port{p['id']}")),
-                "wire": p.get("wire"),
+                "cable": p.get("cable"),
             })
         return jsonify({"status": "ok", "ports": ports})
     except Exception as e:
@@ -583,12 +521,12 @@ def _find_port_others(others, port_model, device_type):
         if key in others and isinstance(others[key], dict) and others[key]:
             return others[key]
 
-    # Search all others for dicts whose entries reference the device_type
+    # Search all others for dicts whose entries have a "device" field
     for key, val in others.items():
         if key == "global" or not isinstance(val, dict) or not val:
             continue
         first_entry = next(iter(val.values()), None)
-        if isinstance(first_entry, dict) and device_type in first_entry:
+        if isinstance(first_entry, dict) and "device" in first_entry:
             return val
 
     return {}
@@ -604,7 +542,7 @@ def _make_port(port_data, tc_others=None):
     port = {
         "id": port_data["id"],
         "name": port_data.get("name", port_data.get("nameid", f"port{port_data['id']}")),
-        "wire": port_data.get("wire"),
+        "cable": port_data.get("cable"),
     }
     # Include tc (traffic control) ID if available
     tc = port_data.get("tc")
@@ -655,7 +593,7 @@ def _extract_devices(result, device_type, port_model):
         for port_id_str, port_data in port_others.items():
             if not isinstance(port_data, dict):
                 continue
-            parent_id = port_data.get(device_type)
+            parent_id = port_data.get("device")
             if parent_id == obj["id"]:
                 dev["ports"].append(_make_port(port_data, tc_others))
 
@@ -675,7 +613,7 @@ def _extract_devices(result, device_type, port_model):
                             dev["ports"].append({
                                 "id": int(p) if isinstance(p, str) else p,
                                 "name": f"port{p}",
-                                "wire": None,
+                                "cable": None,
                             })
 
         devices.append(dev)
@@ -712,21 +650,21 @@ def get_device_ports_route(device_type, device_id):
                 ports.append({
                     "id": p["id"],
                     "name": p.get("name", p.get("nameid", f"port{p['id']}")),
-                    "wire": p.get("wire"),
+                    "cable": p.get("cable"),
                 })
         return jsonify({"status": "ok", "ports": ports})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-def _find_tc_for_port(client, port_id, tc_id_hint=None):
+def _find_tc_for_port(client, fabric_id, device_id, port_id, tc_id_hint=None):
     """Find the traffic control object for a port.
 
     Uses tc_id_hint if provided (from topology data), otherwise queries the API.
     """
     if tc_id_hint:
         return tc_id_hint
-    tc_obj = client.get_tc_for_port(port_id)
+    tc_obj = client.get_tc_for_port(fabric_id, device_id, port_id)
     if tc_obj:
         return tc_obj["id"]
     return None
@@ -738,11 +676,13 @@ def _build_tc_params(params):
     Field names and types match the real ``model.trafficcontrol`` object
     as used by ``runtime tc update``.
     """
+    # bandwidth in the API is in bps; our UI uses kbit, so convert kbit → bps
+    bandwidth_kbit = int(params.get("bandwidth_kbit", 0))
     return {
         "delay": int(params.get("delay_ms", 0)),
         "jitter": int(params.get("jitter_ms", 0)),
         "loss": float(params.get("loss_percent", 0)),
-        "bandwidth": int(params.get("bandwidth_kbit", 0)),
+        "bandwidth": bandwidth_kbit * 1000,
         "corrupt": float(params.get("corrupt_percent", 0)),
         "duplicate": float(params.get("duplicate_percent", 0)),
         "reorder": float(params.get("reorder_percent", 0)),
@@ -780,6 +720,9 @@ def apply_wan_rules():
     if not device_id:
         return jsonify({"status": "error", "message": "device_id is required"}), 400
 
+    if not fabric_id:
+        return jsonify({"status": "error", "message": "fabric_id is required"}), 400
+
     results = {}
     errors = []
     for iface_name, params in interfaces.items():
@@ -791,7 +734,7 @@ def apply_wan_rules():
             continue
 
         try:
-            tc_id = _find_tc_for_port(client, port_id, tc_id_hint)
+            tc_id = _find_tc_for_port(client, fabric_id, device_id, port_id, tc_id_hint)
             if not tc_id:
                 errors.append(f"{iface_name}: no traffic control object found for port {port_id}")
                 continue
@@ -842,6 +785,8 @@ def clear_wan_rules():
 
     if not device_id:
         return jsonify({"status": "error", "message": "device_id is required"}), 400
+    if not fabric_id:
+        return jsonify({"status": "error", "message": "fabric_id is required"}), 400
 
     zero_params = _build_tc_params({})
     results = {}
@@ -855,7 +800,7 @@ def clear_wan_rules():
             continue
 
         try:
-            tc_id = _find_tc_for_port(client, port_id, tc_id_hint)
+            tc_id = _find_tc_for_port(client, fabric_id, device_id, port_id, tc_id_hint)
             if not tc_id:
                 errors.append(f"{iface_name}: no traffic control object found for port {port_id}")
                 continue
