@@ -21,6 +21,7 @@ const API = {
     routerPorts: (id) => API.request('GET', `/api/router/${id}/ports`),
     devicePorts: (type, id) => API.request('GET', `/api/device/${type}/${id}/ports`),
     presets: () => API.request('GET', '/api/presets'),
+    tcValues: (d) => API.request('POST', '/api/tc/values', d),
     apply: (d) => API.request('POST', '/api/apply', d),
     clear: (d) => API.request('POST', '/api/clear', d),
     status: () => API.request('GET', '/api/status'),
@@ -269,11 +270,38 @@ async function selectDevice(device) {
 
     const deviceKey = `${device.type}-${device.id}`;
     const saved = state.appliedParams[deviceKey] || {};
+
+    // Build portMap and initial params (defaults for now)
+    const portsPayload = {};
     ports.forEach(p => {
         const name = p.name || `eth${p.id}`;
         state.interfaceParams[name] = saved[name] ? { ...saved[name] } : defaultParams();
         state.portMap[name] = { id: p.id, tc: p.tc || null };
+        portsPayload[name] = { port_id: p.id, tc_id: p.tc || null };
     });
+
+    // Fetch current TC values from the API and populate sliders
+    if (state.fabricId) {
+        try {
+            const tcData = await API.tcValues({
+                fabric_id: state.fabricId,
+                device_id: device.id,
+                ports: portsPayload,
+            });
+            const values = tcData.values || {};
+            for (const [portName, tcParams] of Object.entries(values)) {
+                if (tcParams && state.interfaceParams[portName]) {
+                    // Only overwrite if we don't have locally-applied params
+                    if (!saved[portName]) {
+                        state.interfaceParams[portName] = tcParams;
+                    }
+                }
+            }
+            addLog(`Loaded current TC values for ${device.name}`);
+        } catch (err) {
+            addLog(`Could not fetch TC values: ${err.message}`, 'error');
+        }
+    }
 
     renderEmulator(device);
     $('#emulator-panel').classList.remove('hidden');
@@ -505,6 +533,25 @@ async function handleApplyInterface(iface) {
         if (ifaceResult && ifaceResult.sync_error) {
             addLog(`Runtime sync issue on ${iface}: ${ifaceResult.sync_error}`, 'error');
         }
+
+        // Re-read TC values from the API to confirm what was actually applied
+        if (state.fabricId) {
+            try {
+                const portInfo = state.portMap[iface] || {};
+                const tcData = await API.tcValues({
+                    fabric_id: state.fabricId,
+                    device_id: state.selectedDevice.id,
+                    ports: { [iface]: { port_id: portInfo.id, tc_id: portInfo.tc } },
+                });
+                const vals = tcData.values && tcData.values[iface];
+                if (vals) {
+                    state.interfaceParams[iface] = vals;
+                    state.appliedParams[deviceKey][iface] = vals;
+                    renderEmulator(state.selectedDevice);
+                    addLog(`Confirmed TC values on ${iface}: ${formatParamsForLog(vals)}`);
+                }
+            } catch (_) { /* best effort */ }
+        }
     } catch (err) {
         toast(`Failed: ${err.message}`, 'error');
         addLog(`Error applying to ${iface}: ${err.message}`, 'error');
@@ -536,8 +583,22 @@ async function handleClearInterface(iface) {
             tc_ids,
         });
 
-        // Reset params and clear persisted state
-        state.interfaceParams[iface] = defaultParams();
+        // Re-read TC values from the API to confirm what was actually cleared
+        let clearedParams = defaultParams();
+        if (state.fabricId) {
+            try {
+                const portInfo = state.portMap[iface] || {};
+                const tcData = await API.tcValues({
+                    fabric_id: state.fabricId,
+                    device_id: state.selectedDevice.id,
+                    ports: { [iface]: { port_id: portInfo.id, tc_id: portInfo.tc } },
+                });
+                const vals = tcData.values && tcData.values[iface];
+                if (vals) clearedParams = vals;
+            } catch (_) { /* best effort */ }
+        }
+
+        state.interfaceParams[iface] = clearedParams;
         const deviceKey = `${state.selectedDevice.type}-${state.selectedDevice.id}`;
         if (state.appliedParams[deviceKey]) {
             delete state.appliedParams[deviceKey][iface];
