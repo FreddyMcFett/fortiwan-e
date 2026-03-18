@@ -40,6 +40,7 @@ const state = {
     presets: {},
     interfaceParams: {},
     portMap: {},       // Maps port name -> { id, tc } for the selected device
+    appliedParams: {}, // Persists applied params per device: { "router-1": { "port1": {...} } }
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -266,9 +267,11 @@ async function selectDevice(device) {
         }
     }
 
+    const deviceKey = `${device.type}-${device.id}`;
+    const saved = state.appliedParams[deviceKey] || {};
     ports.forEach(p => {
         const name = p.name || `eth${p.id}`;
-        state.interfaceParams[name] = defaultParams();
+        state.interfaceParams[name] = saved[name] ? { ...saved[name] } : defaultParams();
         state.portMap[name] = { id: p.id, tc: p.tc || null };
     });
 
@@ -446,6 +449,20 @@ function updateCardStatus(iface) {
     card.querySelector('.dot').className = `dot ${hasRules ? 'active' : ''}`;
 }
 
+// --- Param Formatting ---
+
+function formatParamsForLog(params) {
+    const parts = [];
+    if (params.delay_ms) parts.push(`delay=${params.delay_ms}ms`);
+    if (params.jitter_ms) parts.push(`jitter=${params.jitter_ms}ms`);
+    if (params.loss_percent) parts.push(`loss=${params.loss_percent}%`);
+    if (params.corrupt_percent) parts.push(`corrupt=${params.corrupt_percent}%`);
+    if (params.duplicate_percent) parts.push(`duplicate=${params.duplicate_percent}%`);
+    if (params.reorder_percent) parts.push(`reorder=${params.reorder_percent}%`);
+    if (params.bandwidth_kbit) parts.push(`bw=${formatValue(params.bandwidth_kbit, 'kbit/s')}`);
+    return parts.length ? parts.join(', ') : 'all clear (no impairments)';
+}
+
 // --- Per-Interface Apply/Clear ---
 
 async function handleApplyInterface(iface) {
@@ -462,18 +479,31 @@ async function handleApplyInterface(iface) {
         if (portInfo.id) port_ids[iface] = portInfo.id;
         if (portInfo.tc) tc_ids[iface] = portInfo.tc;
 
+        const appliedParams = { ...state.interfaceParams[iface] };
         const result = await API.apply({
             device_id: state.selectedDevice.id,
             device_type: state.selectedDevice.type,
             fabric_id: state.fabricId,
-            interfaces: { [iface]: state.interfaceParams[iface] },
+            interfaces: { [iface]: appliedParams },
             port_ids,
             tc_ids,
         });
+
+        // Persist applied params for this device/interface
+        const deviceKey = `${state.selectedDevice.type}-${state.selectedDevice.id}`;
+        if (!state.appliedParams[deviceKey]) state.appliedParams[deviceKey] = {};
+        state.appliedParams[deviceKey][iface] = appliedParams;
+
+        const paramSummary = formatParamsForLog(appliedParams);
         toast(`Rules applied to ${iface}`, 'success');
-        addLog(`Rules applied to ${state.selectedDevice.name} / ${iface}`, 'success');
+        addLog(`Applied to ${state.selectedDevice.name} / ${iface}: ${paramSummary}`, 'success');
         if (result.errors && result.errors.length) {
             result.errors.forEach(e => addLog(`Warning: ${e}`, 'error'));
+        }
+        // Surface sync errors from the backend
+        const ifaceResult = result.results && result.results[iface];
+        if (ifaceResult && ifaceResult.sync_error) {
+            addLog(`Runtime sync issue on ${iface}: ${ifaceResult.sync_error}`, 'error');
         }
     } catch (err) {
         toast(`Failed: ${err.message}`, 'error');
@@ -506,11 +536,15 @@ async function handleClearInterface(iface) {
             tc_ids,
         });
 
-        // Reset params
+        // Reset params and clear persisted state
         state.interfaceParams[iface] = defaultParams();
+        const deviceKey = `${state.selectedDevice.type}-${state.selectedDevice.id}`;
+        if (state.appliedParams[deviceKey]) {
+            delete state.appliedParams[deviceKey][iface];
+        }
         renderEmulator(state.selectedDevice);
         toast(`Rules cleared on ${iface}`, 'success');
-        addLog(`Rules cleared on ${state.selectedDevice.name} / ${iface}`, 'success');
+        addLog(`Cleared ${state.selectedDevice.name} / ${iface}: all impairments removed`, 'success');
     } catch (err) {
         toast(`Failed: ${err.message}`, 'error');
         addLog(`Error clearing ${iface}: ${err.message}`, 'error');

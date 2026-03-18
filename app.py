@@ -244,6 +244,10 @@ class FabricStudioAPI:
             payload,
         )
 
+    def sync_tc(self, device_id, port_id):
+        """Sync runtime traffic control from the model values."""
+        return self.post(f"runtime/device/{device_id}/port/{port_id}/tc:sync")
+
     def force_tc(self, device_id, port_id):
         """Reapply traffic control on a port via the runtime endpoint."""
         return self.post(f"runtime/device/{device_id}/port/{port_id}/tc:force")
@@ -740,8 +744,11 @@ def apply_wan_rules():
                 continue
 
             tc_params = _build_tc_params(params)
-            result = _apply_tc_update(client, tc_id, tc_params, fabric_id, device_id, port_id)
-            results[iface_name] = {"tc_id": tc_id, "status": "ok", "result": result}
+            update_result = _apply_tc_update(client, tc_id, tc_params, fabric_id, device_id, port_id)
+            iface_result = {"tc_id": tc_id, "status": "ok", "applied_params": params}
+            if update_result.get("sync_error"):
+                iface_result["sync_error"] = update_result["sync_error"]
+            results[iface_name] = iface_result
         except Exception as e:
             errors.append(f"{iface_name}: {str(e)}")
 
@@ -756,16 +763,22 @@ def apply_wan_rules():
     })
 
 
-def _apply_tc_update(client, tc_id, tc_params, fabric_id=None, device_id=None, port_id=None):
-    """Update a TC object and force-apply to the running device."""
-    result = client.update_tc(tc_id, tc_params, fabric_id=fabric_id,
-                              device_id=device_id, port_id=port_id)
-    if device_id is not None and port_id is not None:
+def _apply_tc_update(client, tc_id, tc_params, fabric_id, device_id, port_id):
+    """Update a TC model object, then sync the runtime to apply immediately."""
+    result = client.update_tc(tc_id, tc_params, fabric_id, device_id, port_id)
+
+    # Sync runtime from the updated model so changes take effect immediately
+    sync_error = None
+    try:
+        client.sync_tc(device_id, port_id)
+    except Exception as e:
+        # sync failed — try force as fallback
         try:
             client.force_tc(device_id, port_id)
-        except Exception:
-            pass  # Best-effort; the model update already succeeded
-    return result
+        except Exception as e2:
+            sync_error = f"sync failed: {e}; force failed: {e2}"
+
+    return {"model_result": result, "sync_error": sync_error}
 
 
 @app.route("/api/clear", methods=["POST"])
