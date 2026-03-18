@@ -97,6 +97,16 @@ class FabricStudioAPI:
         resp.raise_for_status()
         return resp.json()
 
+    def patch(self, endpoint, data=None):
+        """PATCH request to API."""
+        resp = self.session.patch(
+            f"{self.base_url}/api/v1/{endpoint}",
+            json=data,
+            headers=self._headers(),
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def get_fabrics(self):
         """List all fabrics."""
         return self.get("model/fabric")
@@ -260,23 +270,35 @@ class FabricStudioAPI:
 
         return None
 
-    def update_tc(self, tc_id, data):
+    def update_tc(self, tc_id, data, fabric_id=None, device_id=None, port_id=None):
         """Update a traffic control object.
 
-        Fabric Studio ``model <x> update`` operations are typically exposed as
-        POST calls to ``/api/v1/model/<x>/<id>`` using ``object.<field>`` form
-        keys.  Some environments also accept JSON PUT on the same URL.
-        
-        Prefer form POST first (matches the official REST shell examples), then
-        fall back to JSON PUT for compatibility with older deployments.
-        """
-        form = {f"object.{key}": value for key, value in data.items()}
+        Uses the fabric-scoped endpoint:
+        PATCH /api/v1/model/fabric/{fabric}/device/{device}/port/{port}/tc
 
+        When fabric_id, device_id, and port_id are provided the fabric-scoped
+        PATCH endpoint is used.  Falls back to legacy model/tc/{id} paths when
+        the scoping parameters are missing.
+        """
+        if fabric_id is not None and device_id is not None and port_id is not None:
+            obj = {"id": tc_id}
+            obj.update(data)
+            update_fields = ",".join(data.keys())
+            payload = {
+                "object": obj,
+                "update_fields": update_fields,
+                "related_fields": [],
+            }
+            return self.patch(
+                f"model/fabric/{fabric_id}/device/{device_id}/port/{port_id}/tc",
+                payload,
+            )
+
+        # Legacy fallback when scoping parameters are not available
+        form = {f"object.{key}": value for key, value in data.items()}
         try:
             return self.post_form(f"model/tc/{tc_id}", form)
         except http_requests.exceptions.HTTPError as e:
-            # If this deployment does not allow POST for this endpoint,
-            # keep the previous PUT behavior as a fallback.
             if e.response is not None and e.response.status_code != 405:
                 raise
 
@@ -788,8 +810,9 @@ def apply_wan_rules():
 
 
 def _apply_tc_update(client, tc_id, tc_params, fabric_id=None, device_id=None, port_id=None):
-    """Update a TC object via the model/tc endpoint."""
-    return client.update_tc(tc_id, tc_params)
+    """Update a TC object via the fabric-scoped PATCH endpoint."""
+    return client.update_tc(tc_id, tc_params, fabric_id=fabric_id,
+                            device_id=device_id, port_id=port_id)
 
 
 @app.route("/api/clear", methods=["POST"])
