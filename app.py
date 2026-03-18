@@ -228,12 +228,12 @@ class FabricStudioAPI:
     def update_tc(self, tc_id, data, fabric_id, device_id, port_id):
         """Update a traffic control object.
 
-        Uses the fabric-scoped endpoint:
-        PATCH /api/v1/model/fabric/{fabric}/device/{device}/port/{port}/tc
+        Matches the Fabric Studio command format:
+        command: model fabric device port tc update
         """
-        obj = {"id": tc_id}
+        obj = {"id": tc_id, "__model": "model.trafficcontrol"}
         obj.update(data)
-        update_fields = ",".join(data.keys())
+        update_fields = [",".join(data.keys())]
         payload = {
             "object": obj,
             "update_fields": update_fields,
@@ -244,8 +244,16 @@ class FabricStudioAPI:
             payload,
         )
 
-    def sync_tc(self, device_id, port_id):
-        """Sync runtime traffic control from the model values."""
+    def sync_tc(self, tc_id):
+        """Sync runtime traffic control from the model values.
+
+        Uses runtime/tc/{id}:sync which matches the Fabric Studio command:
+        command: runtime tc sync
+        """
+        return self.post(f"runtime/tc/{tc_id}:sync")
+
+    def sync_tc_by_port(self, device_id, port_id):
+        """Sync runtime traffic control via device/port path (fallback)."""
         return self.post(f"runtime/device/{device_id}/port/{port_id}/tc:sync")
 
     def force_tc(self, device_id, port_id):
@@ -890,16 +898,20 @@ def _apply_tc_update(client, tc_id, tc_params, fabric_id, device_id, port_id):
     """
     result = client.update_tc(tc_id, tc_params, fabric_id, device_id, port_id)
 
-    # Sync runtime from the updated model so changes take effect immediately
+    # Sync runtime from the updated model so changes take effect immediately.
+    # Use runtime/tc/{id}:sync (matches Fabric Studio's own sync command).
     sync_error = None
     try:
-        client.sync_tc(device_id, port_id)
+        client.sync_tc(tc_id)
     except Exception as e:
-        # sync failed — try force as fallback
+        # Fallback: try device/port sync, then force
         try:
-            client.force_tc(device_id, port_id)
-        except Exception as e2:
-            sync_error = f"sync failed: {e}; force failed: {e2}"
+            client.sync_tc_by_port(device_id, port_id)
+        except Exception:
+            try:
+                client.force_tc(device_id, port_id)
+            except Exception as e2:
+                sync_error = f"sync failed: {e}; force failed: {e2}"
 
     return {"model_result": result, "sync_error": sync_error}
 
