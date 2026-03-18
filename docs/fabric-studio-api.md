@@ -839,7 +839,7 @@ model fabric [-h] [{clone,sanity,export,import,remote,documentation,list,detail,
 | Command | Description |
 |---------|-------------|
 | `fabric device port tc detail <FABRIC> <DEVICE> <PORT> <tc>` | Detail view of traffic control |
-| `fabric device port tc update <FABRIC> <DEVICE> <PORT> <tc> <OBJECT>` | Update traffic control |
+| `fabric device port tc update <FABRIC> <DEVICE> <PORT> <tc> <OBJECT>` | Update traffic control. REST: `PATCH /api/v1/model/fabric/{fabric}/device/{device}/port/{port}/tc` |
 | `fabric device tc list <FABRIC> <DEVICE> [FILTER_OPTS]` | List traffic controls |
 
 **Fabric-scoped host:**
@@ -1096,6 +1096,56 @@ model tc [-h] [{list,detail,update}]
 | `list` | `model tc list [FILTER_OPTS]` | List traffic controls. Returns `list[model.trafficcontrol]\|page[model.trafficcontrol]` |
 | `detail` | `model tc detail [--related-fields ...] <trafficcontrol>` | Detail view. Returns `model.trafficcontrol` |
 | `update` | `model tc update [--update-fields ...] [--related-fields ...] <trafficcontrol> <OBJECT>` | Update traffic control. Returns `model.trafficcontrol` |
+
+**REST endpoint for traffic control update (fabric-scoped):**
+
+```
+PATCH /api/v1/model/fabric/{fabric}/device/{device}/port/{port}/tc
+```
+
+**Request body (`application/json`):**
+
+```json
+{
+  "object": {
+    "id": 0,
+    "delay": 0,
+    "jitter": 0,
+    "corrupt": 0,
+    "duplicate": 0,
+    "reorder": 0,
+    "loss": 0,
+    "bandwidth": 0,
+    "bucket_size": 15000
+  },
+  "update_fields": "delay,jitter,loss,bandwidth,corrupt,duplicate,reorder",
+  "related_fields": []
+}
+```
+
+**Response (`200 OK`):**
+
+```json
+{
+  "status": "done",
+  "object": {
+    "id": 0,
+    "port": 0,
+    "delay": 0,
+    "jitter": 0,
+    "corrupt": 0,
+    "duplicate": 0,
+    "reorder": 0,
+    "loss": 0,
+    "bandwidth": 0,
+    "bucket_size": 15000,
+    "override": false,
+    "__model": "model.trafficcontrol"
+  }
+}
+```
+
+> **Note:** The `model/tc/{id}` endpoints only support GET (list/detail). Use the fabric-scoped PATCH endpoint above for updates.
 
 ---
 
