@@ -674,23 +674,122 @@ def _find_tc_for_port(client, fabric_id, device_id, port_id, tc_id_hint=None):
     return None
 
 
-def _build_tc_params(params):
+def _resolve_tc_field_names(tc_obj):
+    """Discover actual API field names from a TC object.
+
+    Returns a dict mapping our canonical names to the real API field names
+    found in *tc_obj*.  Falls back to the canonical name when no match.
+    """
+    candidates = {
+        "delay": ["delay", "delay_ms"],
+        "jitter": ["jitter", "jitter_ms"],
+        "loss": ["loss", "loss_percent", "packet_loss", "loss_pct"],
+        "corrupt": ["corrupt", "corrupt_percent", "corruption"],
+        "duplicate": ["duplicate", "duplicate_percent", "duplication"],
+        "reorder": ["reorder", "reorder_percent", "reordering"],
+        "bandwidth": ["bandwidth", "rate", "bandwidth_bps", "bw"],
+    }
+    mapping = {}
+    for canonical, options in candidates.items():
+        for opt in options:
+            if opt in tc_obj:
+                mapping[canonical] = opt
+                break
+        if canonical not in mapping:
+            mapping[canonical] = canonical
+    return mapping
+
+
+def _build_tc_params(params, field_names=None):
     """Convert our WAN emulation params to Fabric Studio tc model fields.
 
-    Field names and types match the real ``model.trafficcontrol`` object
-    as used by ``runtime tc update``.
+    *field_names* is an optional mapping from canonical names to the actual
+    API field names (as returned by ``_resolve_tc_field_names``).  When
+    provided the payload uses the API's real field names so the update is
+    accepted.
     """
-    # bandwidth in the API is in bps; our UI uses kbit, so convert kbit → bps
+    if field_names is None:
+        field_names = {k: k for k in ("delay", "jitter", "loss", "bandwidth",
+                                       "corrupt", "duplicate", "reorder")}
     bandwidth_kbit = int(params.get("bandwidth_kbit", 0))
     return {
-        "delay": int(params.get("delay_ms", 0)),
-        "jitter": int(params.get("jitter_ms", 0)),
-        "loss": float(params.get("loss_percent", 0)),
-        "bandwidth": bandwidth_kbit * 1000,
-        "corrupt": float(params.get("corrupt_percent", 0)),
-        "duplicate": float(params.get("duplicate_percent", 0)),
-        "reorder": float(params.get("reorder_percent", 0)),
+        field_names["delay"]: int(params.get("delay_ms", 0)),
+        field_names["jitter"]: int(params.get("jitter_ms", 0)),
+        field_names["loss"]: float(params.get("loss_percent", 0)),
+        field_names["bandwidth"]: bandwidth_kbit * 1000,
+        field_names["corrupt"]: float(params.get("corrupt_percent", 0)),
+        field_names["duplicate"]: float(params.get("duplicate_percent", 0)),
+        field_names["reorder"]: float(params.get("reorder_percent", 0)),
     }
+
+
+def _tc_to_ui_params(tc_obj):
+    """Convert a raw TC API object back to UI param dict.
+
+    Tries multiple possible field names to handle different API versions.
+    """
+    def _get(names, default=0):
+        for n in names:
+            if n in tc_obj:
+                try:
+                    return float(tc_obj[n])
+                except (TypeError, ValueError):
+                    pass
+        return default
+
+    bw_raw = _get(["bandwidth", "rate", "bandwidth_bps", "bw"], 0)
+    return {
+        "delay_ms": _get(["delay", "delay_ms"]),
+        "jitter_ms": _get(["jitter", "jitter_ms"]),
+        "loss_percent": _get(["loss", "loss_percent", "packet_loss", "loss_pct"]),
+        "corrupt_percent": _get(["corrupt", "corrupt_percent", "corruption"]),
+        "duplicate_percent": _get(["duplicate", "duplicate_percent", "duplication"]),
+        "reorder_percent": _get(["reorder", "reorder_percent", "reordering"]),
+        "bandwidth_kbit": int(bw_raw / 1000) if bw_raw else 0,
+        "correlation_percent": 0,
+    }
+
+
+@app.route("/api/tc/values", methods=["POST"])
+def get_tc_values():
+    """Fetch current TC values for one or more ports.
+
+    Expects JSON:
+    {
+        "fabric_id": 1,
+        "device_id": 1,
+        "ports": { "port1": { "port_id": 42, "tc_id": 7 }, ... }
+    }
+
+    Returns current TC values mapped to UI param names for each port.
+    """
+    client = get_api_client()
+    if not client:
+        return jsonify({"status": "error", "message": "Not connected"}), 401
+
+    data = request.json
+    fabric_id = data.get("fabric_id")
+    device_id = data.get("device_id")
+    ports = data.get("ports", {})
+
+    if not fabric_id or not device_id:
+        return jsonify({"status": "error", "message": "fabric_id and device_id are required"}), 400
+
+    results = {}
+    for port_name, port_info in ports.items():
+        port_id = port_info.get("port_id")
+        if not port_id:
+            continue
+        try:
+            tc_obj = client.get_tc_for_port(fabric_id, device_id, port_id)
+            if tc_obj:
+                results[port_name] = _tc_to_ui_params(tc_obj)
+            else:
+                results[port_name] = None
+        except Exception:
+            results[port_name] = None
+
+    return jsonify({"status": "ok", "values": results})
 
 
 @app.route("/api/apply", methods=["POST"])
@@ -743,7 +842,13 @@ def apply_wan_rules():
                 errors.append(f"{iface_name}: no traffic control object found for port {port_id}")
                 continue
 
-            tc_params = _build_tc_params(params)
+            # Read current TC object to discover actual API field names
+            field_names = None
+            tc_obj = client.get_tc_for_port(fabric_id, device_id, port_id)
+            if tc_obj:
+                field_names = _resolve_tc_field_names(tc_obj)
+
+            tc_params = _build_tc_params(params, field_names)
             update_result = _apply_tc_update(client, tc_id, tc_params, fabric_id, device_id, port_id)
             iface_result = {"tc_id": tc_id, "status": "ok", "applied_params": params}
             if update_result.get("sync_error"):
@@ -764,7 +869,11 @@ def apply_wan_rules():
 
 
 def _apply_tc_update(client, tc_id, tc_params, fabric_id, device_id, port_id):
-    """Update a TC model object, then sync the runtime to apply immediately."""
+    """Update a TC model object, then sync the runtime to apply immediately.
+
+    *tc_params* should already be built with the correct API field names
+    (see ``_resolve_tc_field_names``).
+    """
     result = client.update_tc(tc_id, tc_params, fabric_id, device_id, port_id)
 
     # Sync runtime from the updated model so changes take effect immediately
@@ -801,7 +910,6 @@ def clear_wan_rules():
     if not fabric_id:
         return jsonify({"status": "error", "message": "fabric_id is required"}), 400
 
-    zero_params = _build_tc_params({})
     results = {}
     errors = []
     for iface_name in interfaces:
@@ -818,6 +926,13 @@ def clear_wan_rules():
                 errors.append(f"{iface_name}: no traffic control object found for port {port_id}")
                 continue
 
+            # Read current TC object to discover actual API field names
+            field_names = None
+            tc_obj = client.get_tc_for_port(fabric_id, device_id, port_id)
+            if tc_obj:
+                field_names = _resolve_tc_field_names(tc_obj)
+
+            zero_params = _build_tc_params({}, field_names)
             _apply_tc_update(client, tc_id, zero_params, fabric_id, device_id, port_id)
             results[iface_name] = {"tc_id": tc_id, "status": "ok"}
         except Exception as e:
