@@ -120,6 +120,44 @@ function updateModeLabels() {
 
 // --- Studios ---
 
+function applyDemoConnectionMode(isDemoMode) {
+    const studioSelector = $('.studio-selector');
+    const hostInput = $('#fs-host');
+    const userInput = $('#fs-user');
+    let staticLabel = $('#demo-studio-label');
+
+    if (isDemoMode) {
+        // Hide the studio selector (dropdown + Add Studio button)
+        studioSelector.classList.add('hidden');
+
+        // Show a static label instead
+        if (!staticLabel) {
+            staticLabel = document.createElement('div');
+            staticLabel.id = 'demo-studio-label';
+            staticLabel.className = 'form-group';
+            staticLabel.innerHTML = `<label>Fabric Studio Instance</label><div class="demo-static-value">${DEMO_STUDIO_LABEL}</div>`;
+            studioSelector.parentNode.insertBefore(staticLabel, studioSelector);
+        }
+        staticLabel.classList.remove('hidden');
+
+        // Hardcode host and username, make them readonly
+        hostInput.value = DEMO_STUDIO_HOST;
+        hostInput.readOnly = true;
+        userInput.value = DEMO_USERNAME;
+        userInput.readOnly = true;
+    } else {
+        // Show the studio selector
+        studioSelector.classList.remove('hidden');
+
+        // Hide static label
+        if (staticLabel) staticLabel.classList.add('hidden');
+
+        // Restore editable fields
+        hostInput.readOnly = true; // host is always readonly (set by dropdown)
+        userInput.readOnly = false;
+    }
+}
+
 async function loadStudios() {
     try {
         const data = await API.studios();
@@ -141,6 +179,9 @@ async function loadStudios() {
             opt.textContent = s.label + (s.has_credentials ? ' (saved)' : '');
             sel.appendChild(opt);
         });
+
+        // Apply demo mode connection restrictions
+        applyDemoConnectionMode(state.mode === 'demo');
 
         // In demo mode, auto-select Studio 01
         if (state.mode === 'demo' && studios.length > 0) {
@@ -164,7 +205,10 @@ async function handleStudioSelect() {
     // Load saved credentials if available
     try {
         const data = await API.getCredentials(host);
-        $('#fs-user').value = data.username || 'admin';
+        // In demo mode, keep username hardcoded
+        if (state.mode !== 'demo') {
+            $('#fs-user').value = data.username || 'admin';
+        }
         $('#fs-pass').value = data.password || '';
         const hasSaved = !!(data.password);
         $('#save-credentials').checked = hasSaved;
@@ -304,6 +348,8 @@ async function checkConnection() {
 // Demo mode constants
 const DEMO_FABRIC_NAME = 'sd-wan-7.6';
 const DEMO_STUDIO_HOST = 'studio-01.mp-cloud.lab';
+const DEMO_STUDIO_LABEL = 'Studio 01';
+const DEMO_USERNAME = 'admin';
 const DEMO_ALLOWED_DEVICES = ['FGT-HUB1', 'FGT-HUB2', 'FGT-BR1', 'FGT-BR2', 'FGT-BR3'];
 const DEMO_PORT_LABELS = { 'port2': 'ISP-A', 'port3': 'ISP-B' };
 

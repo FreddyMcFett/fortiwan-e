@@ -599,6 +599,15 @@ body {
     flex: 1;
 }
 
+.demo-static-value {
+    padding: 10px 14px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-size: 0.95rem;
+}
+
 .save-credentials-row {
     display: flex;
     align-items: center;
