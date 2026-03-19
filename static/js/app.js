@@ -25,6 +25,10 @@ const API = {
     apply: (d) => API.request('POST', '/api/apply', d),
     clear: (d) => API.request('POST', '/api/clear', d),
     status: () => API.request('GET', '/api/status'),
+    studios: () => API.request('GET', '/api/studios'),
+    getCredentials: (host) => API.request('GET', `/api/credentials/${encodeURIComponent(host)}`),
+    saveCredentials: (d) => API.request('POST', '/api/credentials', d),
+    deleteCredentials: (host) => API.request('DELETE', `/api/credentials/${encodeURIComponent(host)}`),
     debugRaw: async (endpoint, params) => {
         const qs = params ? '?' + new URLSearchParams(params).toString() : '';
         const resp = await fetch(`/api/debug/raw/${endpoint}${qs}`);
@@ -51,6 +55,7 @@ const $$ = (sel) => document.querySelectorAll(sel);
 // Initialize
 document.addEventListener('DOMContentLoaded', async () => {
     setupEventListeners();
+    await loadStudios();
     await loadPresets();
     await checkConnection();
 });
@@ -60,6 +65,19 @@ function setupEventListeners() {
     $('#btn-disconnect').addEventListener('click', handleDisconnect);
     $('#btn-load-topology').addEventListener('click', handleLoadTopology);
     $('#btn-clear-log').addEventListener('click', () => { $('#log-entries').innerHTML = ''; });
+
+    // Studio selector
+    $('#studio-select').addEventListener('change', handleStudioSelect);
+    $('#btn-add-studio').addEventListener('click', () => {
+        $('#custom-studio-input').classList.remove('hidden');
+        $('#custom-studio-host').focus();
+    });
+    $('#btn-cancel-custom').addEventListener('click', () => {
+        $('#custom-studio-input').classList.add('hidden');
+        $('#custom-studio-host').value = '';
+    });
+    $('#btn-use-custom').addEventListener('click', handleUseCustomStudio);
+    $('#btn-delete-credentials').addEventListener('click', handleDeleteCredentials);
 
     // Mode toggle
     const modeSwitch = $('#mode-switch');
@@ -81,6 +99,91 @@ function updateModeLabels() {
     $('#mode-label-advanced').classList.toggle('active', isAdvanced);
 }
 
+// --- Studios ---
+
+async function loadStudios() {
+    try {
+        const data = await API.studios();
+        const sel = $('#studio-select');
+        sel.innerHTML = '<option value="">-- Select a Studio --</option>';
+        (data.studios || []).forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s.host;
+            opt.textContent = s.label + (s.has_credentials ? ' (saved)' : '');
+            sel.appendChild(opt);
+        });
+    } catch (_) {}
+}
+
+async function handleStudioSelect() {
+    const host = $('#studio-select').value;
+    if (!host) {
+        $('#fs-host').value = '';
+        $('#fs-user').value = 'admin';
+        $('#fs-pass').value = '';
+        $('#btn-delete-credentials').classList.add('hidden');
+        $('#save-credentials').checked = false;
+        return;
+    }
+    $('#fs-host').value = host;
+    // Load saved credentials if available
+    try {
+        const data = await API.getCredentials(host);
+        $('#fs-user').value = data.username || 'admin';
+        $('#fs-pass').value = data.password || '';
+        const hasSaved = !!(data.password);
+        $('#save-credentials').checked = hasSaved;
+        if (hasSaved) {
+            $('#btn-delete-credentials').classList.remove('hidden');
+        } else {
+            $('#btn-delete-credentials').classList.add('hidden');
+        }
+    } catch (_) {
+        $('#fs-user').value = 'admin';
+        $('#fs-pass').value = '';
+        $('#btn-delete-credentials').classList.add('hidden');
+    }
+}
+
+async function handleUseCustomStudio() {
+    const host = $('#custom-studio-host').value.trim();
+    if (!host) return toast('Enter a studio address', 'error');
+
+    // Add to dropdown and select it
+    const sel = $('#studio-select');
+    const opt = document.createElement('option');
+    opt.value = host;
+    opt.textContent = host;
+    sel.appendChild(opt);
+    sel.value = host;
+
+    $('#fs-host').value = host;
+    $('#custom-studio-input').classList.add('hidden');
+    $('#custom-studio-host').value = '';
+    $('#fs-user').value = 'admin';
+    $('#fs-pass').value = '';
+    $('#btn-delete-credentials').classList.add('hidden');
+    $('#save-credentials').checked = false;
+    addLog(`Added custom studio: ${host}`);
+}
+
+async function handleDeleteCredentials() {
+    const host = $('#fs-host').value.trim();
+    if (!host) return;
+    try {
+        await API.deleteCredentials(host);
+        toast(`Saved credentials deleted for ${host}`, 'success');
+        $('#btn-delete-credentials').classList.add('hidden');
+        $('#save-credentials').checked = false;
+        $('#fs-pass').value = '';
+        await loadStudios();
+        // Re-select current host
+        $('#studio-select').value = host;
+    } catch (err) {
+        toast(err.message, 'error');
+    }
+}
+
 // --- Connection ---
 
 async function handleConnect(e) {
@@ -90,11 +193,20 @@ async function handleConnect(e) {
     btn.textContent = 'Connecting...';
 
     try {
-        await API.connect({
-            host: $('#fs-host').value.trim(),
-            username: $('#fs-user').value.trim(),
-            password: $('#fs-pass').value,
-        });
+        const host = $('#fs-host').value.trim();
+        const username = $('#fs-user').value.trim();
+        const password = $('#fs-pass').value;
+        await API.connect({ host, username, password });
+
+        // Save credentials if checkbox is checked
+        if ($('#save-credentials').checked) {
+            try {
+                await API.saveCredentials({ host, username, password });
+                await loadStudios();
+                $('#studio-select').value = host;
+            } catch (_) {}
+        }
+
         setConnected(true);
         toast('Connected to Fabric Studio', 'success');
         await loadFabrics();
