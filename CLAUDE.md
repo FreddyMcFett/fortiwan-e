@@ -67,7 +67,7 @@ The app has two UI modes, toggled via a switch in the header. All demo mode logi
 - All 7 WAN parameter sliders visible
 
 Key constants in `app.js`:
-- `DEMO_FABRIC_NAME` — fabric name to auto-load (`'sd-wan 7.6'`)
+- `DEMO_FABRIC_NAME` — fabric name to auto-load (`'sd-wan-7.6'`); matching normalizes hyphens, spaces, dots, and underscores
 - `DEMO_STUDIO_HOST` — studio host to show in demo mode (`'studio-01.mp-cloud.lab'`)
 - `DEMO_ALLOWED_DEVICES` — array of device names shown in demo mode
 - `DEMO_PORT_LABELS` — mapping of port names to display labels (`{ port2: 'ISP-A', port3: 'ISP-B' }`)
