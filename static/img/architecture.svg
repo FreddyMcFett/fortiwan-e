@@ -1,0 +1,152 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0d1117"/>
+      <stop offset="100%" style="stop-color:#161b22"/>
+    </linearGradient>
+    <linearGradient id="fsGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a2332"/>
+      <stop offset="100%" style="stop-color:#0f1923"/>
+    </linearGradient>
+    <linearGradient id="fweGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#da291c"/>
+      <stop offset="100%" style="stop-color:#a01a12"/>
+    </linearGradient>
+    <linearGradient id="devGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#243447"/>
+      <stop offset="100%" style="stop-color:#1a2736"/>
+    </linearGradient>
+    <linearGradient id="routerGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#2d4a1e"/>
+      <stop offset="100%" style="stop-color:#1e3312"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#58a6ff"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#da291c"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#3fb950"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="520" rx="12" fill="url(#bg)"/>
+
+  <!-- ==================== FABRIC STUDIO BOX ==================== -->
+  <rect x="40" y="30" width="520" height="340" rx="10" fill="url(#fsGrad)" stroke="#30363d" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="60" y="60" fill="#58a6ff" font-size="14" font-weight="600">FABRIC STUDIO</text>
+  <text x="207" y="60" fill="#484f58" font-size="11">(ESXi VM)</text>
+
+  <!-- Branch FortiGate -->
+  <rect x="70" y="130" width="140" height="70" rx="8" fill="url(#devGrad)" stroke="#da291c" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="97" y="156" fill="#f0f6fc" font-size="11" font-weight="600">Branch FGT</text>
+  <text x="86" y="176" fill="#8b949e" font-size="10">WAN1 / WAN2</text>
+  <!-- FGT icon -->
+  <rect x="80" y="140" width="8" height="8" rx="2" fill="#da291c" opacity="0.8"/>
+
+  <!-- Router ISP1 -->
+  <rect x="290" y="85" width="140" height="60" rx="8" fill="url(#routerGrad)" stroke="#3fb950" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="310" y="110" fill="#f0f6fc" font-size="11" font-weight="600">Router (ISP1)</text>
+  <text x="321" y="127" fill="#8b949e" font-size="9">tc netem / tbf</text>
+  <!-- Wave icon -->
+  <path d="M432 100 Q437 94 442 100 Q447 106 452 100" fill="none" stroke="#3fb950" stroke-width="1.5" opacity="0.7"/>
+
+  <!-- Router ISP2 -->
+  <rect x="290" y="175" width="140" height="60" rx="8" fill="url(#routerGrad)" stroke="#3fb950" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="310" y="200" fill="#f0f6fc" font-size="11" font-weight="600">Router (ISP2)</text>
+  <text x="321" y="217" fill="#8b949e" font-size="9">tc netem / tbf</text>
+  <path d="M432 190 Q437 184 442 190 Q447 196 452 190" fill="none" stroke="#3fb950" stroke-width="1.5" opacity="0.7"/>
+
+  <!-- HQ / Hub -->
+  <rect x="290" y="275" width="140" height="60" rx="8" fill="url(#devGrad)" stroke="#da291c" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="318" y="300" fill="#f0f6fc" font-size="11" font-weight="600">HQ FortiGate</text>
+  <text x="330" y="317" fill="#8b949e" font-size="10">/ Internet</text>
+  <rect x="300" y="286" width="8" height="8" rx="2" fill="#da291c" opacity="0.8"/>
+
+  <!-- Connection lines inside Fabric Studio -->
+  <!-- FGT to ISP1 -->
+  <line x1="210" y1="147" x2="288" y2="115" stroke="#484f58" stroke-width="1.8" stroke-dasharray="6,3"/>
+  <!-- FGT to ISP2 -->
+  <line x1="210" y1="183" x2="288" y2="200" stroke="#484f58" stroke-width="1.8" stroke-dasharray="6,3"/>
+  <!-- ISP1 to HQ -->
+  <line x1="360" y1="145" x2="360" y2="273" stroke="#484f58" stroke-width="1.2" stroke-dasharray="4,4"/>
+  <!-- ISP2 to HQ (shorter) -->
+
+  <!-- WAN labels on links -->
+  <rect x="228" y="122" width="48" height="16" rx="4" fill="#1a2332"/>
+  <text x="236" y="134" fill="#da291c" font-size="9" font-weight="600">WAN1</text>
+  <rect x="228" y="182" width="48" height="16" rx="4" fill="#1a2332"/>
+  <text x="236" y="194" fill="#da291c" font-size="9" font-weight="600">WAN2</text>
+
+  <!-- ==================== FORTIWANE BOX ==================== -->
+  <rect x="620" y="95" width="240" height="120" rx="10" fill="url(#fweGrad)" stroke="#da291c" stroke-width="2" filter="url(#shadow)"/>
+  <!-- Inner glow effect -->
+  <rect x="622" y="97" width="236" height="116" rx="9" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+  <text x="680" y="128" fill="#ffffff" font-size="16" font-weight="700">FortiWAN-E</text>
+  <text x="668" y="150" fill="rgba(255,255,255,0.7)" font-size="11">Debian / Ubuntu / Docker</text>
+  <text x="693" y="170" fill="rgba(255,255,255,0.5)" font-size="11">http://&lt;ip&gt;:5000</text>
+  <!-- Small shield icon -->
+  <path d="M654 118 L664 113 L674 118 C674 118 675 128 664 134 C653 128 654 118 654 118Z" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="1.2"/>
+
+  <!-- ==================== ADMIN / BROWSER ==================== -->
+  <rect x="660" y="340" width="160" height="70" rx="10" fill="url(#devGrad)" stroke="#58a6ff" stroke-width="1.5" filter="url(#shadow)"/>
+  <!-- Browser icon -->
+  <circle cx="700" cy="368" r="10" fill="none" stroke="#58a6ff" stroke-width="1.2"/>
+  <line x1="700" y1="358" x2="700" y2="378" stroke="#58a6ff" stroke-width="0.8"/>
+  <line x1="690" y1="368" x2="710" y2="368" stroke="#58a6ff" stroke-width="0.8"/>
+  <text x="716" y="373" fill="#f0f6fc" font-size="12" font-weight="600">Admin</text>
+  <text x="694" y="393" fill="#8b949e" font-size="10">Web Browser</text>
+
+  <!-- ==================== CONNECTION ARROWS ==================== -->
+
+  <!-- Fabric Studio <-> FortiWAN-E (REST API) -->
+  <line x1="562" y1="155" x2="618" y2="155" stroke="#58a6ff" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="618" y1="165" x2="562" y2="165" stroke="#3fb950" stroke-width="2" marker-end="url(#arrowGreen)"/>
+  <rect x="560" y="130" width="70" height="16" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="0.8"/>
+  <text x="568" y="142" fill="#58a6ff" font-size="9" font-weight="600">REST API</text>
+  <text x="572" y="186" fill="#484f58" font-size="9">(HTTPS)</text>
+
+  <!-- Admin -> FortiWAN-E (Browser) -->
+  <line x1="740" y1="338" x2="740" y2="217" stroke="#58a6ff" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <rect x="748" y="265" width="62" height="16" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="0.8"/>
+  <text x="754" y="277" fill="#58a6ff" font-size="9" font-weight="600">HTTP :5000</text>
+
+  <!-- ==================== LEGEND / FEATURE BADGES ==================== -->
+  <rect x="40" y="395" width="520" height="100" rx="8" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+
+  <!-- tc rules badge -->
+  <rect x="60" y="412" width="100" height="24" rx="12" fill="#1e3312" stroke="#3fb950" stroke-width="1"/>
+  <text x="81" y="429" fill="#3fb950" font-size="10" font-weight="600">tc netem</text>
+
+  <!-- Parameters -->
+  <text x="175" y="428" fill="#8b949e" font-size="10">Delay</text>
+  <text x="218" y="428" fill="#484f58" font-size="10">|</text>
+  <text x="230" y="428" fill="#8b949e" font-size="10">Jitter</text>
+  <text x="270" y="428" fill="#484f58" font-size="10">|</text>
+  <text x="282" y="428" fill="#8b949e" font-size="10">Loss</text>
+  <text x="315" y="428" fill="#484f58" font-size="10">|</text>
+  <text x="327" y="428" fill="#8b949e" font-size="10">Bandwidth</text>
+  <text x="395" y="428" fill="#484f58" font-size="10">|</text>
+  <text x="407" y="428" fill="#8b949e" font-size="10">Corrupt</text>
+  <text x="460" y="428" fill="#484f58" font-size="10">|</text>
+  <text x="472" y="428" fill="#8b949e" font-size="10">Duplicate</text>
+
+  <!-- tbf badge -->
+  <rect x="60" y="452" width="100" height="24" rx="12" fill="#2a1a0e" stroke="#d29922" stroke-width="1"/>
+  <text x="87" y="469" fill="#d29922" font-size="10" font-weight="600">tc tbf</text>
+
+  <text x="175" y="468" fill="#8b949e" font-size="10">Rate limiting via Token Bucket Filter</text>
+
+  <!-- Reorder param -->
+  <text x="530" y="428" fill="#484f58" font-size="10">|</text>
+  <text x="542" y="428" fill="#8b949e" font-size="10">Reorder</text>
+</svg>
