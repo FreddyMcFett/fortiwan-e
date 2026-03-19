@@ -63,6 +63,22 @@ The app has two UI modes, toggled via a switch in the header. All demo mode logi
 - Displays custom SVG icons: **server rack** icon for HUB devices, **office building** icon for BR devices (replaces the generic VM badge)
 - Hides device type label ("VM") and port count — shows "Hub" or "Branch" role label instead
 - Hides advanced sliders (corruption, duplicates, reorder)
+- Shows **SD-WAN Scenarios** panel above the topology with 5 predefined scenario buttons
+
+**SD-WAN Scenario Buttons** (demo mode only):
+- Appear in a dedicated panel between the fabric selection and topology panels
+- Each button first clears all existing WAN rules, then applies the scenario's predefined TC settings
+- **DC1 Down** — sets 100% packet loss on both ISP-A and ISP-B on FGT-HUB1 (simulates datacenter 1 outage)
+- **ISP-A Degraded** — applies 500ms delay + 20% packet loss on ISP-A (port2) across all demo devices
+- **ISP-B Degraded** — applies 500ms delay + 20% packet loss on ISP-B (port3) across all demo devices
+- **BR1 ISP-A Down** — sets 100% packet loss on ISP-A (port2) on FGT-BR1 only
+- **Restore All** — clears all WAN rules (equivalent to Clear All button)
+- All buttons are disabled during execution to prevent concurrent operations
+- Scenario definitions are stored in the `DEMO_SCENARIOS` array in `app.js`
+
+Key functions in `app.js`:
+- `applyScenario(index)` — clears existing rules then applies the scenario at the given index from `DEMO_SCENARIOS`
+- `executeClearAll()` — reusable clear-all logic shared by scenarios and the Clear All button
 
 **Advanced Mode**:
 - All studios visible, custom studios can be added

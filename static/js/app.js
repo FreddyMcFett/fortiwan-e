@@ -115,6 +115,22 @@ function setupEventListeners() {
     $('#btn-clear-log').addEventListener('click', () => { $('#log-entries').innerHTML = ''; });
     $('#btn-clear-all').addEventListener('click', handleClearAll);
 
+    // Scenario buttons (demo mode)
+    for (let i = 0; i < 4; i++) {
+        $(`#btn-scenario-${i + 1}`).addEventListener('click', () => applyScenario(i));
+    }
+    $('#btn-scenario-5').addEventListener('click', async () => {
+        const btn = $('#btn-scenario-5');
+        const scenarioBtns = document.querySelectorAll('.btn-scenario');
+        scenarioBtns.forEach(b => b.disabled = true);
+        btn.querySelector('.scenario-label').textContent = 'Restoring...';
+        await executeClearAll();
+        scenarioBtns.forEach(b => b.disabled = false);
+        btn.querySelector('.scenario-label').textContent = 'Restore All';
+        toast('All WAN rules cleared', 'success');
+        addLog('Scenario "Restore All": cleared all WAN rules', 'success');
+    });
+
     // Studio selector
     $('#studio-select').addEventListener('change', handleStudioSelect);
     $('#btn-add-studio').addEventListener('click', () => {
@@ -142,7 +158,11 @@ function setupEventListeners() {
         if (state.mode === 'demo') {
             // Auto-load demo fabric if connected (hides fabric panel)
             if (state.connected) loadFabrics();
+            // Show scenario panel if topology is loaded
+            if (state.topology) $('#scenario-panel').classList.remove('hidden');
         } else {
+            // Hide scenario panel in advanced mode
+            $('#scenario-panel').classList.add('hidden');
             // Show fabric panel with full selection in advanced mode
             if (state.connected) {
                 $('#fabric-panel').classList.remove('hidden');
@@ -353,6 +373,7 @@ async function handleDisconnect() {
     state.topology = null;
     state.selectedDevice = null;
     $('#fabric-panel').classList.add('hidden');
+    $('#scenario-panel').classList.add('hidden');
     $('#topology-panel').classList.add('hidden');
     $('#emulator-panel').classList.add('hidden');
     $('#log-panel').classList.add('hidden');
@@ -464,6 +485,7 @@ async function loadFabrics() {
                     state.topology = topoData.topology;
                     renderTopology(topoData.topology);
                     $('#topology-panel').classList.remove('hidden');
+                    if (state.mode === 'demo') $('#scenario-panel').classList.remove('hidden');
                     $('#log-panel').classList.remove('hidden');
                     addLog(`Topology loaded for ${demoFabric.name}`);
                 } catch (topoErr) {
@@ -499,6 +521,8 @@ async function handleLoadTopology() {
         state.topology = data.topology;
         renderTopology(data.topology);
         $('#topology-panel').classList.remove('hidden');
+        if (state.mode === 'demo') $('#scenario-panel').classList.remove('hidden');
+        else $('#scenario-panel').classList.add('hidden');
         $('#log-panel').classList.remove('hidden');
 
         // Log port summary
@@ -1078,6 +1102,207 @@ async function handleClearAll() {
     } else {
         toast(`Cleared with ${totalErrors} error(s)`, 'error');
         addLog(`Clear All: ${totalCleared} interface(s) cleared, ${totalErrors} device(s) failed`, 'error');
+    }
+}
+
+// --- Demo Scenarios ---
+
+const DEMO_SCENARIOS = [
+    {
+        // Scenario 1: DC1 Down — both ISPs on HUB1 at 100% loss
+        name: 'DC1 Down',
+        rules: {
+            'FGT-HUB1': {
+                'port2': { delay_ms: 0, jitter_ms: 0, loss_percent: 100, bandwidth_kbit: 0, corrupt_percent: 0, duplicate_percent: 0, reorder_percent: 0, correlation_percent: 0 },
+                'port3': { delay_ms: 0, jitter_ms: 0, loss_percent: 100, bandwidth_kbit: 0, corrupt_percent: 0, duplicate_percent: 0, reorder_percent: 0, correlation_percent: 0 },
+            },
+        },
+    },
+    {
+        // Scenario 2: ISP-A degraded on all devices
+        name: 'ISP-A Degraded',
+        rules: Object.fromEntries(
+            DEMO_ALLOWED_DEVICES.map(d => [d, {
+                'port2': { delay_ms: 500, jitter_ms: 0, loss_percent: 20, bandwidth_kbit: 0, corrupt_percent: 0, duplicate_percent: 0, reorder_percent: 0, correlation_percent: 0 },
+            }])
+        ),
+    },
+    {
+        // Scenario 3: ISP-B degraded on all devices
+        name: 'ISP-B Degraded',
+        rules: Object.fromEntries(
+            DEMO_ALLOWED_DEVICES.map(d => [d, {
+                'port3': { delay_ms: 500, jitter_ms: 0, loss_percent: 20, bandwidth_kbit: 0, corrupt_percent: 0, duplicate_percent: 0, reorder_percent: 0, correlation_percent: 0 },
+            }])
+        ),
+    },
+    {
+        // Scenario 4: BR1 ISP-A down
+        name: 'BR1 ISP-A Down',
+        rules: {
+            'FGT-BR1': {
+                'port2': { delay_ms: 0, jitter_ms: 0, loss_percent: 100, bandwidth_kbit: 0, corrupt_percent: 0, duplicate_percent: 0, reorder_percent: 0, correlation_percent: 0 },
+            },
+        },
+    },
+];
+
+async function applyScenario(scenarioIndex) {
+    if (!state.topology || !state.fabricId) {
+        toast('No topology loaded', 'error');
+        return;
+    }
+
+    const scenario = DEMO_SCENARIOS[scenarioIndex];
+    if (!scenario) return;
+
+    // Disable all scenario buttons during execution
+    const scenarioBtns = document.querySelectorAll('.btn-scenario');
+    scenarioBtns.forEach(b => b.disabled = true);
+
+    const activeBtn = $(`#btn-scenario-${scenarioIndex + 1}`);
+    const origLabel = activeBtn.querySelector('.scenario-label').textContent;
+    activeBtn.querySelector('.scenario-label').textContent = 'Applying...';
+
+    // First clear all existing rules
+    addLog(`Scenario "${scenario.name}": clearing existing rules...`);
+    await executeClearAll();
+
+    // Build all devices list from topology
+    const allDevices = [
+        ...(state.topology.routers || []).map(d => ({ ...d, type: 'router' })),
+        ...(state.topology.vms || []).map(d => ({ ...d, type: 'vm' })),
+        ...(state.topology.switches || []).map(d => ({ ...d, type: 'switch' })),
+    ].filter(d => DEMO_ALLOWED_DEVICES.includes(d.name));
+
+    let totalApplied = 0;
+    let totalErrors = 0;
+
+    for (const device of allDevices) {
+        const deviceRules = scenario.rules[device.name];
+        if (!deviceRules) continue;
+
+        const ports = (device.ports || []).filter(p => {
+            const name = (p.name || `eth${p.id}`).toLowerCase();
+            return name === 'port2' || name === 'port3';
+        });
+
+        const interfaces = {};
+        const port_ids = {};
+        const tc_ids = {};
+
+        for (const port of ports) {
+            const portName = port.name || `eth${port.id}`;
+            const params = deviceRules[portName.toLowerCase()];
+            if (!params) continue;
+            interfaces[portName] = params;
+            if (port.id) port_ids[portName] = port.id;
+            if (port.tc) tc_ids[portName] = port.tc;
+        }
+
+        if (Object.keys(interfaces).length === 0) continue;
+
+        try {
+            await API.apply({
+                device_id: device.id,
+                device_type: device.type,
+                fabric_id: state.fabricId,
+                interfaces,
+                port_ids,
+                tc_ids,
+            });
+
+            // Track applied params
+            const deviceKey = `${device.type}-${device.id}`;
+            if (!state.appliedParams[deviceKey]) state.appliedParams[deviceKey] = {};
+            for (const [iface, params] of Object.entries(interfaces)) {
+                state.appliedParams[deviceKey][iface] = params;
+                totalApplied++;
+            }
+        } catch (err) {
+            totalErrors++;
+            addLog(`Error applying to ${device.name}: ${err.message}`, 'error');
+        }
+    }
+
+    // Re-render emulator if a device is selected
+    if (state.selectedDevice) {
+        const deviceKey = `${state.selectedDevice.type}-${state.selectedDevice.id}`;
+        const applied = state.appliedParams[deviceKey];
+        if (applied) {
+            for (const [iface, params] of Object.entries(applied)) {
+                state.interfaceParams[iface] = { ...params };
+            }
+        }
+        renderEmulator(state.selectedDevice);
+    }
+
+    // Restore buttons
+    scenarioBtns.forEach(b => b.disabled = false);
+    activeBtn.querySelector('.scenario-label').textContent = origLabel;
+
+    if (totalErrors === 0) {
+        toast(`Scenario "${scenario.name}" applied (${totalApplied} interface${totalApplied !== 1 ? 's' : ''})`, 'success');
+        addLog(`Scenario "${scenario.name}": applied to ${totalApplied} interface(s)`, 'success');
+    } else {
+        toast(`Scenario applied with ${totalErrors} error(s)`, 'error');
+        addLog(`Scenario "${scenario.name}": ${totalApplied} applied, ${totalErrors} failed`, 'error');
+    }
+}
+
+async function executeClearAll() {
+    if (!state.topology || !state.fabricId) return;
+
+    let allDevices = [
+        ...(state.topology.routers || []).map(d => ({ ...d, type: 'router' })),
+        ...(state.topology.vms || []).map(d => ({ ...d, type: 'vm' })),
+        ...(state.topology.switches || []).map(d => ({ ...d, type: 'switch' })),
+    ];
+
+    if (state.mode === 'demo') {
+        allDevices = allDevices.filter(d => DEMO_ALLOWED_DEVICES.includes(d.name));
+    }
+
+    for (const device of allDevices) {
+        let ports = [...(device.ports || [])];
+        if (state.mode === 'demo') {
+            ports = ports.filter(p => {
+                const name = (p.name || `eth${p.id}`).toLowerCase();
+                return name === 'port2' || name === 'port3';
+            });
+        }
+        if (ports.length === 0) continue;
+
+        const interfaces = [];
+        const port_ids = {};
+        const tc_ids = {};
+        ports.forEach(p => {
+            const name = p.name || `eth${p.id}`;
+            interfaces.push(name);
+            if (p.id) port_ids[name] = p.id;
+            if (p.tc) tc_ids[name] = p.tc;
+        });
+
+        try {
+            await API.clear({
+                device_id: device.id,
+                device_type: device.type,
+                fabric_id: state.fabricId,
+                interfaces,
+                port_ids,
+                tc_ids,
+            });
+            const deviceKey = `${device.type}-${device.id}`;
+            delete state.appliedParams[deviceKey];
+        } catch (_) {}
+    }
+
+    // Reset current device UI
+    if (state.selectedDevice) {
+        for (const iface of Object.keys(state.interfaceParams)) {
+            state.interfaceParams[iface] = defaultParams();
+        }
+        renderEmulator(state.selectedDevice);
     }
 }
 
