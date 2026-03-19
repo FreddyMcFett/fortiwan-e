@@ -52,7 +52,8 @@ The `FabricStudioAPI` client handles multiple CSRF token cookie patterns and tri
 The app has two UI modes, toggled via a switch in the header. All demo mode logic is **frontend-only** — the backend has no concept of modes.
 
 **Demo Mode** (default):
-- Only shows **Studio 01** (`studio-01.mp-cloud.lab`) in the studio selector and auto-selects it; "Add Studio" button is hidden
+- Connection panel is locked down: studio instance is shown as static text (not a dropdown), host and username are readonly; only the password field is editable
+- Only shows **Studio 01** (`studio-01.mp-cloud.lab`) and auto-selects it; "Add Studio" button is hidden
 - Automatically selects and loads the **sd-wan 7.6** fabric (fabric selection UI is hidden)
 - Filters the topology to only show: **FGT-HUB1**, **FGT-HUB2**, **FGT-BR1**, **FGT-BR2**, **FGT-BR3**
 - Filters ports to **port2** and **port3** only
@@ -71,10 +72,13 @@ The app has two UI modes, toggled via a switch in the header. All demo mode logi
 Key constants in `app.js`:
 - `DEMO_FABRIC_NAME` — fabric name to auto-load (`'sd-wan-7.6'`); matching normalizes hyphens, spaces, dots, and underscores
 - `DEMO_STUDIO_HOST` — studio host to show in demo mode (`'studio-01.mp-cloud.lab'`)
+- `DEMO_STUDIO_LABEL` — display label for the demo studio (`'Studio 01'`)
+- `DEMO_USERNAME` — hardcoded username in demo mode (`'admin'`)
 - `DEMO_ALLOWED_DEVICES` — array of device names shown in demo mode
 - `DEMO_PORT_LABELS` — mapping of port names to display labels (`{ port2: 'ISP-A', port3: 'ISP-B' }`)
 - `getDemoPortLabel(portName)` — returns the display label for a port (passthrough in advanced mode)
 - `getDemoDeviceIcon(deviceName)` — returns inline SVG icon (server rack for HUB, office building for BR)
+- `applyDemoConnectionMode(isDemoMode)` — locks/unlocks the connection panel fields based on mode
 
 ## Versioning
 
