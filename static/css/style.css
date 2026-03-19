@@ -13,6 +13,8 @@
     --accent-light: rgba(218, 41, 28, 0.15);
     --green: #22c55e;
     --green-light: rgba(34, 197, 94, 0.15);
+    --orange: #f97316;
+    --orange-light: rgba(249, 115, 22, 0.15);
     --yellow: #eab308;
     --yellow-light: rgba(234, 179, 8, 0.15);
     --blue: #3b82f6;
@@ -404,15 +406,15 @@ body {
 
 /* Demo mode device cards */
 .topo-device.demo-hub { border-left: 3px solid var(--blue); }
-.topo-device.demo-branch { border-left: 3px solid var(--green); }
+.topo-device.demo-branch { border-left: 3px solid var(--orange); }
 
 .demo-hub .topo-icon.demo-icon {
     background: var(--blue-light);
     color: var(--blue);
 }
 .demo-branch .topo-icon.demo-icon {
-    background: var(--green-light);
-    color: var(--green);
+    background: var(--orange-light);
+    color: var(--orange);
 }
 
 .topo-icon.demo-icon {
