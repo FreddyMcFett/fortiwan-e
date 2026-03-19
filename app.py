@@ -14,7 +14,7 @@ import requests as http_requests
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.5.1"
 
 app = Flask(__name__)
 app.secret_key = "fortiwane-secret-key-change-in-production"
@@ -841,15 +841,16 @@ def _build_tc_params(params, field_names=None):
     bandwidth_kbit = int(params.get("bandwidth_kbit", 0))
 
     # Map of canonical name -> (value to send)
-    # All TC fields are integers in Fabric Studio (no decimals)
+    # delay/jitter are integers (ms); loss/corrupt/duplicate/reorder are
+    # decimals 0-1 (the Fabric Studio API rejects values > 1 for these).
     values = {
         "delay": int(params.get("delay_ms", 0)),
         "jitter": int(params.get("jitter_ms", 0)),
-        "loss": int(params.get("loss_percent", 0)),
+        "loss": round(float(params.get("loss_percent", 0)) / 100, 4),
         "bandwidth": bandwidth_kbit * 1000,
-        "corrupt": int(params.get("corrupt_percent", 0)),
-        "duplicate": int(params.get("duplicate_percent", 0)),
-        "reorder": int(params.get("reorder_percent", 0)),
+        "corrupt": round(float(params.get("corrupt_percent", 0)) / 100, 4),
+        "duplicate": round(float(params.get("duplicate_percent", 0)) / 100, 4),
+        "reorder": round(float(params.get("reorder_percent", 0)) / 100, 4),
     }
 
     # Only include fields that have a known API field name
@@ -869,19 +870,21 @@ def _tc_to_ui_params(tc_obj):
         for n in names:
             if n in tc_obj:
                 try:
-                    return int(tc_obj[n])
+                    return float(tc_obj[n])
                 except (TypeError, ValueError):
                     pass
         return default
 
     bw_raw = _get(["bandwidth", "rate", "bandwidth_bps", "bw"], 0)
+    # loss/corrupt/duplicate/reorder are stored as decimals 0-1 in the API;
+    # convert back to integer percentages for the UI.
     return {
-        "delay_ms": _get(["delay", "delay_ms"]),
-        "jitter_ms": _get(["jitter", "jitter_ms"]),
-        "loss_percent": _get(["loss", "loss_percent", "packet_loss", "loss_pct"]),
-        "corrupt_percent": _get(["corrupt", "corrupt_percent", "corruption"]),
-        "duplicate_percent": _get(["duplicate", "duplicate_percent", "duplication"]),
-        "reorder_percent": _get(["reorder", "reorder_percent", "reordering"]),
+        "delay_ms": int(_get(["delay", "delay_ms"])),
+        "jitter_ms": int(_get(["jitter", "jitter_ms"])),
+        "loss_percent": int(round(_get(["loss", "loss_percent", "packet_loss", "loss_pct"]) * 100)),
+        "corrupt_percent": int(round(_get(["corrupt", "corrupt_percent", "corruption"]) * 100)),
+        "duplicate_percent": int(round(_get(["duplicate", "duplicate_percent", "duplication"]) * 100)),
+        "reorder_percent": int(round(_get(["reorder", "reorder_percent", "reordering"]) * 100)),
         "bandwidth_kbit": int(bw_raw / 1000) if bw_raw else 0,
         "correlation_percent": 0,
     }
