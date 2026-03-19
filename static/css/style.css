@@ -552,6 +552,52 @@ body {
 .log-msg.success { color: var(--green); }
 .log-msg.error { color: var(--accent); }
 
+/* Studio Selector */
+.studio-selector {
+    display: flex;
+    align-items: end;
+    gap: 12px;
+}
+
+.studio-selector .form-group {
+    flex: 1;
+}
+
+.custom-studio-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.custom-studio-row input {
+    flex: 1;
+}
+
+.save-credentials-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
 /* Utility */
 .hidden { display: none !important; }
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """FortiWAN-E - Web-based WAN Emulator for Fabric Studio SD-WAN demos."""
 
+import json
+import os
 import urllib3
 from flask import Flask, render_template, request, jsonify, session
 from flask_cors import CORS
@@ -8,9 +10,48 @@ import requests as http_requests
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+APP_VERSION = "1.1.0"
+
 app = Flask(__name__)
 app.secret_key = "fortiwane-secret-key-change-in-production"
 CORS(app)
+
+# Predefined Fabric Studio instances
+PREDEFINED_STUDIOS = [
+    {"label": "Studio 01", "host": "studio-01.mp-cloud.lab"},
+    {"label": "Studio 02", "host": "studio-02.mp-cloud.lab"},
+]
+
+# Credentials storage file
+CREDENTIALS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "saved_credentials.json")
+
+
+def _load_saved_credentials():
+    """Load saved credentials from file."""
+    if os.path.exists(CREDENTIALS_FILE):
+        try:
+            with open(CREDENTIALS_FILE, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    return {}
+
+
+def _save_credentials(host, username, password):
+    """Save credentials for a host."""
+    creds = _load_saved_credentials()
+    creds[host] = {"username": username, "password": password}
+    with open(CREDENTIALS_FILE, "w") as f:
+        json.dump(creds, f, indent=2)
+
+
+def _delete_saved_credentials(host):
+    """Delete saved credentials for a host."""
+    creds = _load_saved_credentials()
+    if host in creds:
+        del creds[host]
+        with open(CREDENTIALS_FILE, "w") as f:
+            json.dump(creds, f, indent=2)
 
 
 class FabricStudioAPI:
@@ -407,7 +448,7 @@ WAN_PRESETS = {
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", version=APP_VERSION)
 
 
 @app.route("/api/connect", methods=["POST"])
@@ -999,6 +1040,61 @@ def debug_raw(endpoint):
         return jsonify(result)
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/studios", methods=["GET"])
+def get_studios():
+    """Get predefined Fabric Studio instances and any with saved credentials."""
+    creds = _load_saved_credentials()
+    studios = list(PREDEFINED_STUDIOS)
+    # Add any custom studios that have saved credentials but aren't predefined
+    predefined_hosts = {s["host"] for s in PREDEFINED_STUDIOS}
+    for host in creds:
+        if host not in predefined_hosts:
+            studios.append({"label": host, "host": host, "custom": True})
+    # Mark which studios have saved credentials
+    for studio in studios:
+        studio["has_credentials"] = studio["host"] in creds
+    return jsonify({"status": "ok", "studios": studios})
+
+
+@app.route("/api/credentials/<path:host>", methods=["GET"])
+def get_credentials(host):
+    """Get saved credentials for a host (returns username only, not password)."""
+    creds = _load_saved_credentials()
+    if host in creds:
+        return jsonify({
+            "status": "ok",
+            "username": creds[host].get("username", "admin"),
+            "password": creds[host].get("password", ""),
+        })
+    return jsonify({"status": "ok", "username": "admin", "password": ""})
+
+
+@app.route("/api/credentials", methods=["POST"])
+def save_credentials():
+    """Save credentials for a Fabric Studio host."""
+    data = request.json
+    host = data.get("host", "").strip()
+    username = data.get("username", "admin").strip()
+    password = data.get("password", "")
+    if not host:
+        return jsonify({"status": "error", "message": "Host is required"}), 400
+    _save_credentials(host, username, password)
+    return jsonify({"status": "ok", "message": f"Credentials saved for {host}"})
+
+
+@app.route("/api/credentials/<path:host>", methods=["DELETE"])
+def delete_credentials(host):
+    """Delete saved credentials for a host."""
+    _delete_saved_credentials(host)
+    return jsonify({"status": "ok", "message": f"Credentials deleted for {host}"})
+
+
+@app.route("/api/version", methods=["GET"])
+def get_version():
+    """Get the application version."""
+    return jsonify({"status": "ok", "version": APP_VERSION})
 
 
 if __name__ == "__main__":
