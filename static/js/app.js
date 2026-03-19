@@ -42,6 +42,7 @@ const state = {
     interfaceParams: {},
     portMap: {},       // Maps port name -> { id, tc } for the selected device
     appliedParams: {}, // Persists applied params per device: { "router-1": { "port1": {...} } }
+    mode: 'demo',      // 'demo' or 'advanced'
 };
 
 const $ = (sel) => document.querySelector(sel);
@@ -59,6 +60,25 @@ function setupEventListeners() {
     $('#btn-disconnect').addEventListener('click', handleDisconnect);
     $('#btn-load-topology').addEventListener('click', handleLoadTopology);
     $('#btn-clear-log').addEventListener('click', () => { $('#log-entries').innerHTML = ''; });
+
+    // Mode toggle
+    const modeSwitch = $('#mode-switch');
+    modeSwitch.addEventListener('change', () => {
+        state.mode = modeSwitch.checked ? 'advanced' : 'demo';
+        updateModeLabels();
+        // Re-render emulator if a device is selected
+        if (state.selectedDevice) {
+            selectDevice(state.selectedDevice);
+        }
+        addLog(`Switched to ${state.mode} mode`);
+    });
+    updateModeLabels();
+}
+
+function updateModeLabels() {
+    const isAdvanced = state.mode === 'advanced';
+    $('#mode-label-demo').classList.toggle('active', !isAdvanced);
+    $('#mode-label-advanced').classList.toggle('active', isAdvanced);
 }
 
 // --- Connection ---
@@ -247,7 +267,7 @@ async function selectDevice(device) {
     state.portMap = {};
 
     // Use ports from topology; if empty, fetch separately
-    let ports = device.ports || [];
+    let ports = [...(device.ports || [])];
     if (ports.length === 0) {
         addLog(`${device.type} "${device.name}" has 0 ports from topology, fetching individually...`);
         try {
@@ -265,6 +285,17 @@ async function selectDevice(device) {
             }
         } catch (err) {
             addLog(`Failed to fetch ports for ${device.name}: ${err.message}`, 'error');
+        }
+    }
+
+    // In demo mode, filter to only port2 and port3
+    if (state.mode === 'demo') {
+        ports = ports.filter(p => {
+            const name = (p.name || `eth${p.id}`).toLowerCase();
+            return name === 'port2' || name === 'port3';
+        });
+        if (ports.length === 0) {
+            addLog(`No port2/port3 found on ${device.name} in demo mode`, 'error');
         }
     }
 
@@ -380,6 +411,13 @@ function createInterfaceCard(iface, params) {
         presetOptions += `<option value="${key}">${preset.label}</option>`;
     });
 
+    const isDemo = state.mode === 'demo';
+    const advancedSliders = isDemo ? '' : `
+            ${slider(iface, 'corrupt_percent', 'Corruption', params.corrupt_percent, 0, 100, 1, '%')}
+            ${slider(iface, 'duplicate_percent', 'Duplicates', params.duplicate_percent, 0, 100, 1, '%')}
+            ${slider(iface, 'reorder_percent', 'Reorder', params.reorder_percent, 0, 100, 1, '%')}
+    `;
+
     card.innerHTML = `
         <div class="iface-header">
             <div class="iface-name">
@@ -398,9 +436,7 @@ function createInterfaceCard(iface, params) {
             ${slider(iface, 'delay_ms', 'Delay', params.delay_ms, 0, 2000, 1, 'ms')}
             ${slider(iface, 'jitter_ms', 'Jitter', params.jitter_ms, 0, 500, 1, 'ms')}
             ${slider(iface, 'loss_percent', 'Packet Loss', params.loss_percent, 0, 100, 1, '%')}
-            ${slider(iface, 'corrupt_percent', 'Corruption', params.corrupt_percent, 0, 100, 1, '%')}
-            ${slider(iface, 'duplicate_percent', 'Duplicates', params.duplicate_percent, 0, 100, 1, '%')}
-            ${slider(iface, 'reorder_percent', 'Reorder', params.reorder_percent, 0, 100, 1, '%')}
+            ${advancedSliders}
             ${slider(iface, 'bandwidth_kbit', 'Bandwidth Limit', params.bandwidth_kbit, 0, 1000000, 100, 'kbit/s', true)}
         </div>
     `;
