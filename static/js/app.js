@@ -327,7 +327,7 @@ async function loadFabrics() {
         // In demo mode, auto-select the sd-wan 7.6 fabric and load topology
         if (state.mode === 'demo') {
             const demoFabric = (data.fabrics || []).find(f =>
-                f.name.toLowerCase() === DEMO_FABRIC_NAME.toLowerCase()
+                f.name && f.name.toLowerCase() === DEMO_FABRIC_NAME.toLowerCase()
             );
             if (demoFabric) {
                 sel.value = demoFabric.id;
@@ -336,15 +336,30 @@ async function loadFabrics() {
                 addLog(`Demo mode: auto-loading "${demoFabric.name}" fabric`);
                 // Trigger topology load
                 state.fabricId = parseInt(demoFabric.id);
-                const topoData = await API.topology(demoFabric.id);
-                state.topology = topoData.topology;
-                renderTopology(topoData.topology);
-                $('#topology-panel').classList.remove('hidden');
-                $('#log-panel').classList.remove('hidden');
-                addLog(`Topology loaded for ${demoFabric.name}`);
+                try {
+                    const topoData = await API.topology(demoFabric.id);
+                    state.topology = topoData.topology;
+                    renderTopology(topoData.topology);
+                    $('#topology-panel').classList.remove('hidden');
+                    $('#log-panel').classList.remove('hidden');
+                    addLog(`Topology loaded for ${demoFabric.name}`);
+                } catch (topoErr) {
+                    // Topology load failed — show fabric panel as fallback
+                    $('#fabric-panel').classList.remove('hidden');
+                    toast('Failed to auto-load topology: ' + topoErr.message, 'error');
+                    addLog('Demo topology auto-load failed: ' + topoErr.message, 'error');
+                }
+            } else {
+                // Demo fabric not found — show fabric panel as fallback
+                $('#fabric-panel').classList.remove('hidden');
+                addLog(`Demo fabric "${DEMO_FABRIC_NAME}" not found, showing fabric selector`, 'error');
             }
         }
     } catch (err) {
+        // In demo mode, show fabric panel as fallback so user can retry manually
+        if (state.mode === 'demo') {
+            $('#fabric-panel').classList.remove('hidden');
+        }
         toast('Failed to load fabrics: ' + err.message, 'error');
     }
 }
