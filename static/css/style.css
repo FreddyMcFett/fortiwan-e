@@ -795,6 +795,69 @@ body {
     border-top: 1px solid var(--border);
 }
 
+/* Scenario Buttons */
+.scenario-buttons {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.btn-scenario {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 16px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all var(--transition);
+    min-width: 130px;
+    flex: 1;
+    text-align: center;
+}
+
+.btn-scenario:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow);
+}
+
+.btn-scenario:active {
+    transform: translateY(0);
+}
+
+.btn-scenario:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.btn-scenario .scenario-icon {
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-scenario-restore .scenario-icon {
+    color: var(--green);
+}
+
+.btn-scenario .scenario-label {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.btn-scenario .scenario-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.3;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .form-grid {
