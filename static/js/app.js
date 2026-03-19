@@ -113,6 +113,7 @@ function setupEventListeners() {
     $('#btn-disconnect').addEventListener('click', handleDisconnect);
     $('#btn-load-topology').addEventListener('click', handleLoadTopology);
     $('#btn-clear-log').addEventListener('click', () => { $('#log-entries').innerHTML = ''; });
+    $('#btn-clear-all').addEventListener('click', handleClearAll);
 
     // Studio selector
     $('#studio-select').addEventListener('change', handleStudioSelect);
@@ -988,6 +989,95 @@ async function handleClearInterface(iface) {
         addLog(`Error clearing ${ifaceLabel}: ${err.message}`, 'error');
     } finally {
         if (btn) btn.disabled = false;
+    }
+}
+
+async function handleClearAll() {
+    if (!state.topology || !state.fabricId) {
+        toast('No topology loaded', 'error');
+        return;
+    }
+
+    const btn = $('#btn-clear-all');
+    btn.disabled = true;
+    btn.textContent = 'Clearing...';
+
+    let allDevices = [
+        ...(state.topology.routers || []).map(d => ({ ...d, type: 'router' })),
+        ...(state.topology.vms || []).map(d => ({ ...d, type: 'vm' })),
+        ...(state.topology.switches || []).map(d => ({ ...d, type: 'switch' })),
+    ];
+
+    // In demo mode, filter to only allowed devices
+    if (state.mode === 'demo') {
+        allDevices = allDevices.filter(d => DEMO_ALLOWED_DEVICES.includes(d.name));
+    }
+
+    let totalCleared = 0;
+    let totalErrors = 0;
+
+    for (const device of allDevices) {
+        let ports = [...(device.ports || [])];
+
+        // In demo mode, filter to only demo ports
+        if (state.mode === 'demo') {
+            ports = ports.filter(p => {
+                const name = (p.name || `eth${p.id}`).toLowerCase();
+                return name === 'port2' || name === 'port3';
+            });
+        }
+
+        if (ports.length === 0) continue;
+
+        const interfaces = [];
+        const port_ids = {};
+        const tc_ids = {};
+
+        ports.forEach(p => {
+            const name = p.name || `eth${p.id}`;
+            interfaces.push(name);
+            if (p.id) port_ids[name] = p.id;
+            if (p.tc) tc_ids[name] = p.tc;
+        });
+
+        try {
+            await API.clear({
+                device_id: device.id,
+                device_type: device.type,
+                fabric_id: state.fabricId,
+                interfaces,
+                port_ids,
+                tc_ids,
+            });
+
+            totalCleared += interfaces.length;
+
+            // Clear tracked applied params for this device
+            const deviceKey = `${device.type}-${device.id}`;
+            delete state.appliedParams[deviceKey];
+        } catch (err) {
+            totalErrors++;
+            addLog(`Error clearing ${device.name}: ${err.message}`, 'error');
+        }
+    }
+
+    // If the currently selected device was cleared, reset its UI
+    if (state.selectedDevice) {
+        for (const iface of Object.keys(state.interfaceParams)) {
+            state.interfaceParams[iface] = defaultParams();
+        }
+        renderEmulator(state.selectedDevice);
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Clear All';
+
+    if (totalErrors === 0) {
+        toast(`All WAN rules cleared (${totalCleared} interface${totalCleared !== 1 ? 's' : ''})`, 'success');
+        addLog(`Clear All: cleared ${totalCleared} interface(s) across ${allDevices.length} device(s)`, 'success');
+    } else {
+        toast(`Cleared with ${totalErrors} error(s)`, 'error');
+        addLog(`Clear All: ${totalCleared} interface(s) cleared, ${totalErrors} device(s) failed`, 'error');
     }
 }
 

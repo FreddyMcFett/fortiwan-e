@@ -35,6 +35,7 @@ FortiWAN-E runs as a **standalone web application** (on a separate machine, VM, 
 | **7 WAN Parameters** | Delay, jitter, packet loss, bandwidth, corruption, duplication, reorder |
 | **8 Built-in Presets** | One-click profiles from Perfect Link to Degraded WAN |
 | **Per-Interface Control** | Apply different conditions to each router port independently |
+| **Clear All** | One-click button to clear every WAN rule from every device in the fabric topology |
 | **Demo Mode (SD-WAN)** | Locks to Studio 01, auto-loads sd-wan 7.6 fabric, shows only FGT-HUB/BR devices with custom icons and ISP-A/ISP-B ports |
 | **Advanced Mode** | Full access to all fabrics, devices, and ports |
 | **Topology View** | Visual device selector showing routers, switches, and VMs |
