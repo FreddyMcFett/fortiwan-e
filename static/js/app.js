@@ -302,7 +302,7 @@ async function checkConnection() {
 // --- Fabrics ---
 
 // Demo mode constants
-const DEMO_FABRIC_NAME = 'sd-wan 7.6';
+const DEMO_FABRIC_NAME = 'sd-wan-7.6';
 const DEMO_STUDIO_HOST = 'studio-01.mp-cloud.lab';
 const DEMO_ALLOWED_DEVICES = ['FGT-HUB1', 'FGT-HUB2', 'FGT-BR1', 'FGT-BR2', 'FGT-BR3'];
 const DEMO_PORT_LABELS = { 'port2': 'ISP-A', 'port3': 'ISP-B' };
@@ -326,8 +326,9 @@ async function loadFabrics() {
 
         // In demo mode, auto-select the sd-wan 7.6 fabric and load topology
         if (state.mode === 'demo') {
+            const normalize = s => s.toLowerCase().replace(/[\s\-_.]+/g, '');
             const demoFabric = (data.fabrics || []).find(f =>
-                f.name && f.name.toLowerCase() === DEMO_FABRIC_NAME.toLowerCase()
+                f.name && normalize(f.name) === normalize(DEMO_FABRIC_NAME)
             );
             if (demoFabric) {
                 sel.value = demoFabric.id;
