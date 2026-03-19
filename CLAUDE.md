@@ -57,6 +57,8 @@ The app has two UI modes, toggled via a switch in the header. All demo mode logi
 - Filters the topology to only show: **FGT-HUB1**, **FGT-HUB2**, **FGT-BR1**, **FGT-BR2**, **FGT-BR3**
 - Filters ports to **port2** and **port3** only
 - Renames ports in the GUI: **port2 → ISP-A**, **port3 → ISP-B** (display only, API calls use real port names)
+- Displays custom SVG icons: **server rack** icon for HUB devices, **office building** icon for BR devices (replaces the generic VM badge)
+- Hides device type label ("VM") and port count — shows "Hub" or "Branch" role label instead
 - Hides advanced sliders (corruption, duplicates, reorder)
 
 **Advanced Mode**:
@@ -72,6 +74,7 @@ Key constants in `app.js`:
 - `DEMO_ALLOWED_DEVICES` — array of device names shown in demo mode
 - `DEMO_PORT_LABELS` — mapping of port names to display labels (`{ port2: 'ISP-A', port3: 'ISP-B' }`)
 - `getDemoPortLabel(portName)` — returns the display label for a port (passthrough in advanced mode)
+- `getDemoDeviceIcon(deviceName)` — returns inline SVG icon (server rack for HUB, office building for BR)
 
 ## Versioning
 

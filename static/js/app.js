@@ -312,6 +312,31 @@ function getDemoPortLabel(portName) {
     return DEMO_PORT_LABELS[portName.toLowerCase()] || portName;
 }
 
+/* Demo mode device icons (inline SVG) */
+function getDemoDeviceIcon(deviceName) {
+    const isHub = deviceName.includes('HUB');
+    if (isHub) {
+        // Hub/datacenter icon — server rack style
+        return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="2" width="16" height="6" rx="1.5"/>
+            <rect x="4" y="10" width="16" height="6" rx="1.5"/>
+            <circle cx="8" cy="5" r="1"/>
+            <circle cx="8" cy="13" r="1"/>
+            <line x1="12" y1="16" x2="12" y2="20"/>
+            <line x1="8" y1="20" x2="16" y2="20"/>
+        </svg>`;
+    }
+    // Branch icon — office building style
+    return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="4" y="4" width="16" height="17" rx="1.5"/>
+        <rect x="8" y="8" width="3" height="3"/>
+        <rect x="13" y="8" width="3" height="3"/>
+        <rect x="8" y="13" width="3" height="3"/>
+        <rect x="13" y="13" width="3" height="3"/>
+        <rect x="10" y="18" width="4" height="3"/>
+    </svg>`;
+}
+
 async function loadFabrics() {
     try {
         const data = await API.fabrics();
@@ -428,17 +453,30 @@ function renderTopology(topo) {
         el.dataset.id = dev.id;
         el.dataset.type = dev.type;
 
-        const iconText = dev.type === 'router' ? 'R' : dev.type === 'vm' ? 'VM' : 'SW';
+        const isDemo = state.mode === 'demo';
         const portCount = (dev.ports || []).length;
 
-        el.innerHTML = `
-            <div class="topo-icon">${iconText}</div>
-            <div class="topo-info">
-                <div class="topo-name">${dev.name}</div>
-                <div class="topo-type">${dev.type}</div>
-                <div class="topo-ports">${portCount} port${portCount !== 1 ? 's' : ''}</div>
-            </div>
-        `;
+        if (isDemo) {
+            const isHub = dev.name.includes('HUB');
+            el.classList.add('demo-card', isHub ? 'demo-hub' : 'demo-branch');
+            el.innerHTML = `
+                <div class="topo-icon demo-icon">${getDemoDeviceIcon(dev.name)}</div>
+                <div class="topo-info">
+                    <div class="topo-name">${dev.name}</div>
+                    <div class="topo-role">${isHub ? 'Hub' : 'Branch'}</div>
+                </div>
+            `;
+        } else {
+            const iconText = dev.type === 'router' ? 'R' : dev.type === 'vm' ? 'VM' : 'SW';
+            el.innerHTML = `
+                <div class="topo-icon">${iconText}</div>
+                <div class="topo-info">
+                    <div class="topo-name">${dev.name}</div>
+                    <div class="topo-type">${dev.type}</div>
+                    <div class="topo-ports">${portCount} port${portCount !== 1 ? 's' : ''}</div>
+                </div>
+            `;
+        }
 
         el.style.cursor = 'pointer';
         el.addEventListener('click', () => selectDevice(dev));

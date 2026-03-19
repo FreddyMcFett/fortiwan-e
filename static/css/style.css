@@ -389,6 +389,32 @@ body {
     color: var(--text-secondary);
 }
 
+/* Demo mode device cards */
+.topo-device.demo-hub { border-left: 3px solid var(--blue); }
+.topo-device.demo-branch { border-left: 3px solid var(--green); }
+
+.demo-hub .topo-icon.demo-icon {
+    background: var(--blue-light);
+    color: var(--blue);
+}
+.demo-branch .topo-icon.demo-icon {
+    background: var(--green-light);
+    color: var(--green);
+}
+
+.topo-icon.demo-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+}
+
+.topo-role {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
 /* Preset dropdown in interface card */
 .preset-select {
     padding: 5px 28px 5px 10px;
