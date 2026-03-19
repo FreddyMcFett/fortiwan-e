@@ -35,7 +35,7 @@ FortiWAN-E runs as a **standalone web application** (on a separate machine, VM, 
 | **7 WAN Parameters** | Delay, jitter, packet loss, bandwidth, corruption, duplication, reorder |
 | **8 Built-in Presets** | One-click profiles from Perfect Link to Degraded WAN |
 | **Per-Interface Control** | Apply different conditions to each router port independently |
-| **Demo Mode (SD-WAN)** | Auto-loads sd-wan 7.6 fabric, shows only FGT-HUB/BR devices with ISP-A/ISP-B ports |
+| **Demo Mode (SD-WAN)** | Locks to Studio 01, auto-loads sd-wan 7.6 fabric, shows only FGT-HUB/BR devices with ISP-A/ISP-B ports |
 | **Advanced Mode** | Full access to all fabrics, devices, and ports |
 | **Topology View** | Visual device selector showing routers, switches, and VMs |
 | **Studio Manager** | Save and switch between multiple Fabric Studio instances |
@@ -131,7 +131,7 @@ chmod +x run.sh && ./run.sh
 4. **Configure WAN** — Adjust sliders per interface or pick a preset profile (Demo Mode shows ISP-A / ISP-B)
 5. **Apply** — Rules are pushed to the device via the Fabric Studio API
 
-> **Tip:** Use **Demo Mode** for the SD-WAN 7.6 demo experience — it auto-loads the fabric, shows only the relevant FortiGate devices (FGT-HUB1, FGT-HUB2, FGT-BR1, FGT-BR2, FGT-BR3), and labels ports as ISP-A / ISP-B. Switch to **Advanced Mode** for full control over all fabrics, devices, and interfaces.
+> **Tip:** Use **Demo Mode** for the SD-WAN 7.6 demo experience — it locks to Studio 01, auto-loads the fabric, shows only the relevant FortiGate devices (FGT-HUB1, FGT-HUB2, FGT-BR1, FGT-BR2, FGT-BR3), and labels ports as ISP-A / ISP-B. Switch to **Advanced Mode** for full control over all studios, fabrics, devices, and interfaces.
 
 ## Fabric Studio Setup
 

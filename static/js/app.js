@@ -85,6 +85,9 @@ function setupEventListeners() {
         state.mode = modeSwitch.checked ? 'advanced' : 'demo';
         updateModeLabels();
 
+        // Reload studios to apply demo filter
+        loadStudios();
+
         // Handle fabric panel visibility based on mode
         const fabricBody = $('#fabric-panel').querySelector('.panel-body');
         if (state.mode === 'demo') {
@@ -117,14 +120,30 @@ function updateModeLabels() {
 async function loadStudios() {
     try {
         const data = await API.studios();
+        let studios = data.studios || [];
+
+        // In demo mode, only show Studio 01
+        if (state.mode === 'demo') {
+            studios = studios.filter(s => s.host === DEMO_STUDIO_HOST);
+            $('#btn-add-studio')?.classList.add('hidden');
+        } else {
+            $('#btn-add-studio')?.classList.remove('hidden');
+        }
+
         const sel = $('#studio-select');
         sel.innerHTML = '<option value="">-- Select a Studio --</option>';
-        (data.studios || []).forEach(s => {
+        studios.forEach(s => {
             const opt = document.createElement('option');
             opt.value = s.host;
             opt.textContent = s.label + (s.has_credentials ? ' (saved)' : '');
             sel.appendChild(opt);
         });
+
+        // In demo mode, auto-select Studio 01
+        if (state.mode === 'demo' && studios.length > 0) {
+            sel.value = studios[0].host;
+            await handleStudioSelect();
+        }
     } catch (_) {}
 }
 
@@ -278,6 +297,7 @@ async function checkConnection() {
 
 // Demo mode constants
 const DEMO_FABRIC_NAME = 'sd-wan 7.6';
+const DEMO_STUDIO_HOST = 'studio-01.mp-cloud.lab';
 const DEMO_ALLOWED_DEVICES = ['FGT-HUB1', 'FGT-HUB2', 'FGT-BR1', 'FGT-BR2', 'FGT-BR3'];
 const DEMO_PORT_LABELS = { 'port2': 'ISP-A', 'port3': 'ISP-B' };
 
