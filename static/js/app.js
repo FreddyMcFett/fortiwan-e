@@ -84,6 +84,22 @@ function setupEventListeners() {
     modeSwitch.addEventListener('change', () => {
         state.mode = modeSwitch.checked ? 'advanced' : 'demo';
         updateModeLabels();
+
+        // Reload studios to apply demo filter
+        loadStudios();
+
+        // Handle fabric panel visibility based on mode
+        const fabricBody = $('#fabric-panel').querySelector('.panel-body');
+        if (state.mode === 'demo') {
+            fabricBody?.classList.add('hidden');
+            // Auto-load demo fabric if connected
+            if (state.connected) loadFabrics();
+        } else {
+            fabricBody?.classList.remove('hidden');
+            // Re-render topology to show all devices
+            if (state.topology) renderTopology(state.topology);
+        }
+
         // Re-render emulator if a device is selected
         if (state.selectedDevice) {
             selectDevice(state.selectedDevice);
@@ -104,14 +120,30 @@ function updateModeLabels() {
 async function loadStudios() {
     try {
         const data = await API.studios();
+        let studios = data.studios || [];
+
+        // In demo mode, only show Studio 01
+        if (state.mode === 'demo') {
+            studios = studios.filter(s => s.host === DEMO_STUDIO_HOST);
+            $('#btn-add-studio')?.classList.add('hidden');
+        } else {
+            $('#btn-add-studio')?.classList.remove('hidden');
+        }
+
         const sel = $('#studio-select');
         sel.innerHTML = '<option value="">-- Select a Studio --</option>';
-        (data.studios || []).forEach(s => {
+        studios.forEach(s => {
             const opt = document.createElement('option');
             opt.value = s.host;
             opt.textContent = s.label + (s.has_credentials ? ' (saved)' : '');
             sel.appendChild(opt);
         });
+
+        // In demo mode, auto-select Studio 01
+        if (state.mode === 'demo' && studios.length > 0) {
+            sel.value = studios[0].host;
+            await handleStudioSelect();
+        }
     } catch (_) {}
 }
 
@@ -263,6 +295,17 @@ async function checkConnection() {
 
 // --- Fabrics ---
 
+// Demo mode constants
+const DEMO_FABRIC_NAME = 'sd-wan 7.6';
+const DEMO_STUDIO_HOST = 'studio-01.mp-cloud.lab';
+const DEMO_ALLOWED_DEVICES = ['FGT-HUB1', 'FGT-HUB2', 'FGT-BR1', 'FGT-BR2', 'FGT-BR3'];
+const DEMO_PORT_LABELS = { 'port2': 'ISP-A', 'port3': 'ISP-B' };
+
+function getDemoPortLabel(portName) {
+    if (state.mode !== 'demo') return portName;
+    return DEMO_PORT_LABELS[portName.toLowerCase()] || portName;
+}
+
 async function loadFabrics() {
     try {
         const data = await API.fabrics();
@@ -274,6 +317,27 @@ async function loadFabrics() {
             opt.textContent = f.name;
             sel.appendChild(opt);
         });
+
+        // In demo mode, auto-select the sd-wan 7.6 fabric and load topology
+        if (state.mode === 'demo') {
+            const demoFabric = (data.fabrics || []).find(f =>
+                f.name.toLowerCase() === DEMO_FABRIC_NAME.toLowerCase()
+            );
+            if (demoFabric) {
+                sel.value = demoFabric.id;
+                // Hide fabric selection UI in demo mode
+                $('#fabric-panel').querySelector('.panel-body').classList.add('hidden');
+                addLog(`Demo mode: auto-loading "${demoFabric.name}" fabric`);
+                // Trigger topology load
+                state.fabricId = parseInt(demoFabric.id);
+                const topoData = await API.topology(demoFabric.id);
+                state.topology = topoData.topology;
+                renderTopology(topoData.topology);
+                $('#topology-panel').classList.remove('hidden');
+                $('#log-panel').classList.remove('hidden');
+                addLog(`Topology loaded for ${demoFabric.name}`);
+            }
+        }
     } catch (err) {
         toast('Failed to load fabrics: ' + err.message, 'error');
     }
@@ -320,11 +384,16 @@ function renderTopology(topo) {
     const container = $('#topology-diagram');
     container.innerHTML = '';
 
-    const allDevices = [
+    let allDevices = [
         ...(topo.routers || []).map(d => ({ ...d, type: 'router' })),
         ...(topo.vms || []).map(d => ({ ...d, type: 'vm' })),
         ...(topo.switches || []).map(d => ({ ...d, type: 'switch' })),
     ];
+
+    // In demo mode, filter to only allowed devices
+    if (state.mode === 'demo') {
+        allDevices = allDevices.filter(d => DEMO_ALLOWED_DEVICES.includes(d.name));
+    }
 
     if (allDevices.length === 0) {
         container.innerHTML = '<p style="color:var(--text-muted)">No devices found in this fabric.</p>';
@@ -407,7 +476,7 @@ async function selectDevice(device) {
             return name === 'port2' || name === 'port3';
         });
         if (ports.length === 0) {
-            addLog(`No port2/port3 found on ${device.name} in demo mode`, 'error');
+            addLog(`No ISP-A/ISP-B ports found on ${device.name} in demo mode`, 'error');
         }
     }
 
@@ -488,7 +557,7 @@ function applyPresetToInterface(iface, key) {
 
     // Re-render just this card
     renderEmulator(state.selectedDevice);
-    addLog(`Preset "${preset.label}" applied to ${iface}`);
+    addLog(`Preset "${preset.label}" applied to ${getDemoPortLabel(iface)}`);
 }
 
 // --- Emulator Controls ---
@@ -530,11 +599,12 @@ function createInterfaceCard(iface, params) {
             ${slider(iface, 'reorder_percent', 'Reorder', params.reorder_percent, 0, 100, 1, '%')}
     `;
 
+    const displayName = getDemoPortLabel(iface);
     card.innerHTML = `
         <div class="iface-header">
             <div class="iface-name">
                 <span class="dot ${hasRules ? 'active' : ''}"></span>
-                ${iface}
+                ${displayName}
             </div>
             <div class="iface-header-actions">
                 <select class="preset-select" data-iface="${iface}">
@@ -671,15 +741,16 @@ async function handleApplyInterface(iface) {
         state.appliedParams[deviceKey][iface] = appliedParams;
 
         const paramSummary = formatParamsForLog(appliedParams);
-        toast(`Rules applied to ${iface}`, 'success');
-        addLog(`Applied to ${state.selectedDevice.name} / ${iface}: ${paramSummary}`, 'success');
+        const ifaceLabel = getDemoPortLabel(iface);
+        toast(`Rules applied to ${ifaceLabel}`, 'success');
+        addLog(`Applied to ${state.selectedDevice.name} / ${ifaceLabel}: ${paramSummary}`, 'success');
         if (result.errors && result.errors.length) {
             result.errors.forEach(e => addLog(`Warning: ${e}`, 'error'));
         }
         // Surface sync errors from the backend
         const ifaceResult = result.results && result.results[iface];
         if (ifaceResult && ifaceResult.sync_error) {
-            addLog(`Runtime sync issue on ${iface}: ${ifaceResult.sync_error}`, 'error');
+            addLog(`Runtime sync issue on ${ifaceLabel}: ${ifaceResult.sync_error}`, 'error');
         }
 
         // Re-read TC values from the API to confirm what was actually applied
@@ -696,13 +767,13 @@ async function handleApplyInterface(iface) {
                     state.interfaceParams[iface] = vals;
                     state.appliedParams[deviceKey][iface] = vals;
                     renderEmulator(state.selectedDevice);
-                    addLog(`Confirmed TC values on ${iface}: ${formatParamsForLog(vals)}`);
+                    addLog(`Confirmed TC values on ${ifaceLabel}: ${formatParamsForLog(vals)}`);
                 }
             } catch (_) { /* best effort */ }
         }
     } catch (err) {
         toast(`Failed: ${err.message}`, 'error');
-        addLog(`Error applying to ${iface}: ${err.message}`, 'error');
+        addLog(`Error applying to ${ifaceLabel}: ${err.message}`, 'error');
     } finally {
         if (btn) { btn.disabled = false; btn.textContent = 'Apply'; }
     }
@@ -752,11 +823,13 @@ async function handleClearInterface(iface) {
             delete state.appliedParams[deviceKey][iface];
         }
         renderEmulator(state.selectedDevice);
-        toast(`Rules cleared on ${iface}`, 'success');
-        addLog(`Cleared ${state.selectedDevice.name} / ${iface}: all impairments removed`, 'success');
+        const ifaceLabel = getDemoPortLabel(iface);
+        toast(`Rules cleared on ${ifaceLabel}`, 'success');
+        addLog(`Cleared ${state.selectedDevice.name} / ${ifaceLabel}: all impairments removed`, 'success');
     } catch (err) {
+        const ifaceLabel = getDemoPortLabel(iface);
         toast(`Failed: ${err.message}`, 'error');
-        addLog(`Error clearing ${iface}: ${err.message}`, 'error');
+        addLog(`Error clearing ${ifaceLabel}: ${err.message}`, 'error');
     } finally {
         if (btn) btn.disabled = false;
     }
