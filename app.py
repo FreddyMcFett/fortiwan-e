@@ -10,7 +10,7 @@ import requests as http_requests
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 
 app = Flask(__name__)
 app.secret_key = "fortiwane-secret-key-change-in-production"

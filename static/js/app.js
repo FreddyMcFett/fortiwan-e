@@ -91,11 +91,14 @@ function setupEventListeners() {
         // Handle fabric panel visibility based on mode
         const fabricBody = $('#fabric-panel').querySelector('.panel-body');
         if (state.mode === 'demo') {
-            fabricBody?.classList.add('hidden');
-            // Auto-load demo fabric if connected
+            // Auto-load demo fabric if connected (hides fabric panel)
             if (state.connected) loadFabrics();
         } else {
-            fabricBody?.classList.remove('hidden');
+            // Show fabric panel with full selection in advanced mode
+            if (state.connected) {
+                $('#fabric-panel').classList.remove('hidden');
+                fabricBody?.classList.remove('hidden');
+            }
             // Re-render topology to show all devices
             if (state.topology) renderTopology(state.topology);
         }
@@ -272,7 +275,10 @@ function setConnected(val) {
         text.textContent = `Connected to ${$('#fs-host').value}`;
         $('#btn-connect').classList.add('hidden');
         $('#btn-disconnect').classList.remove('hidden');
-        $('#fabric-panel').classList.remove('hidden');
+        // In demo mode, fabric panel is managed by loadFabrics()
+        if (state.mode !== 'demo') {
+            $('#fabric-panel').classList.remove('hidden');
+        }
     } else {
         badge.className = 'badge badge-disconnected';
         text.textContent = 'Disconnected';
@@ -325,8 +331,8 @@ async function loadFabrics() {
             );
             if (demoFabric) {
                 sel.value = demoFabric.id;
-                // Hide fabric selection UI in demo mode
-                $('#fabric-panel').querySelector('.panel-body').classList.add('hidden');
+                // Hide entire fabric panel in demo mode
+                $('#fabric-panel').classList.add('hidden');
                 addLog(`Demo mode: auto-loading "${demoFabric.name}" fabric`);
                 // Trigger topology load
                 state.fabricId = parseInt(demoFabric.id);
