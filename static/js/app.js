@@ -9,10 +9,27 @@ const API = {
             headers: { 'Content-Type': 'application/json' },
         };
         if (body) opts.body = JSON.stringify(body);
-        const resp = await fetch(url, opts);
-        const data = await resp.json();
-        if (data.status === 'error') throw new Error(data.message);
-        return data;
+        const startTime = performance.now();
+        try {
+            const resp = await fetch(url, opts);
+            const data = await resp.json();
+            const duration = Math.round(performance.now() - startTime);
+            DebugLog.add('debug', 'fetch', `${method} ${url} -> ${resp.status} (${duration}ms)`, {
+                method, url, status: resp.status, duration,
+                responseKeys: data && typeof data === 'object' ? Object.keys(data) : null,
+            });
+            if (data.status === 'error') {
+                DebugLog.add('error', 'api', `API error: ${data.message}`, { method, url, body });
+                throw new Error(data.message);
+            }
+            return data;
+        } catch (err) {
+            if (!err.message || !err.message.startsWith('API error')) {
+                const duration = Math.round(performance.now() - startTime);
+                DebugLog.add('error', 'fetch', `${method} ${url} failed (${duration}ms): ${err.message}`, { method, url });
+            }
+            throw err;
+        }
     },
     connect: (d) => API.request('POST', '/api/connect', d),
     disconnect: () => API.request('POST', '/api/disconnect'),
@@ -34,7 +51,144 @@ const API = {
         const resp = await fetch(`/api/debug/raw/${endpoint}${qs}`);
         return resp.json();
     },
+    debugLogs: (minutes) => API.request('GET', `/api/debug/logs?minutes=${minutes}`),
+    clearDebugLogs: () => API.request('DELETE', '/api/debug/logs'),
 };
+
+// --- Debug Logging System ---
+
+const DebugLog = {
+    entries: [],
+    maxEntries: 5000,
+
+    add(level, category, message, details = null) {
+        const entry = {
+            timestamp: new Date().toISOString(),
+            epoch: Date.now() / 1000,
+            level,
+            category,
+            message,
+            source: 'frontend',
+        };
+        if (details) entry.details = details;
+        this.entries.push(entry);
+        if (this.entries.length > this.maxEntries) {
+            this.entries = this.entries.slice(-this.maxEntries);
+        }
+        // Update debug panel if open
+        if (!$('#debug-panel').classList.contains('hidden')) {
+            this.renderDebugPanel();
+        }
+    },
+
+    async getFilteredLogs(minutes) {
+        const cutoff = Date.now() / 1000 - minutes * 60;
+        // Get frontend logs
+        const frontendLogs = this.entries.filter(e => e.epoch >= cutoff);
+        // Get backend logs
+        let backendLogs = [];
+        try {
+            const data = await API.debugLogs(minutes);
+            backendLogs = (data.logs || []).map(e => ({ ...e, source: 'backend' }));
+        } catch (_) {}
+        // Merge and sort by epoch
+        const all = [...frontendLogs, ...backendLogs];
+        all.sort((a, b) => a.epoch - b.epoch);
+        return all;
+    },
+
+    async renderDebugPanel() {
+        const minutes = parseInt($('#debug-time-range').value) || 15;
+        const logs = await this.getFilteredLogs(minutes);
+        const container = $('#debug-entries');
+
+        if (logs.length === 0) {
+            container.innerHTML = '<div class="debug-empty">No debug logs in this time range.</div>';
+            return;
+        }
+
+        const html = logs.map(e => {
+            const time = new Date(e.timestamp).toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+            const levelClass = `debug-level-${e.level}`;
+            const sourceLabel = e.source === 'backend' ? 'BE' : 'FE';
+            const sourceClass = `debug-source-${e.source}`;
+            const detailsStr = e.details ? `<pre class="debug-details">${escapeHtml(JSON.stringify(e.details, null, 2))}</pre>` : '';
+            return `<div class="debug-entry ${levelClass}">
+                <span class="debug-time">${time}</span>
+                <span class="debug-badge ${sourceClass}">${sourceLabel}</span>
+                <span class="debug-badge debug-cat">${e.category}</span>
+                <span class="debug-badge ${levelClass}">${e.level.toUpperCase()}</span>
+                <span class="debug-msg">${escapeHtml(e.message)}</span>
+                ${detailsStr}
+            </div>`;
+        }).join('');
+
+        container.innerHTML = html;
+        container.scrollTop = container.scrollHeight;
+    },
+
+    async exportLogs(minutes) {
+        const logs = await this.getFilteredLogs(minutes);
+        const exportData = {
+            exported_at: new Date().toISOString(),
+            time_range_minutes: minutes,
+            app_state: {
+                connected: state.connected,
+                mode: state.mode,
+                fabricId: state.fabricId,
+                selectedDevice: state.selectedDevice ? { id: state.selectedDevice.id, name: state.selectedDevice.name, type: state.selectedDevice.type } : null,
+                portMap: state.portMap,
+                appliedParams: state.appliedParams,
+            },
+            user_agent: navigator.userAgent,
+            total_entries: logs.length,
+            logs,
+        };
+        return exportData;
+    },
+
+    async copyToClipboard() {
+        const minutes = parseInt($('#debug-time-range').value) || 15;
+        const data = await this.exportLogs(minutes);
+        const text = JSON.stringify(data, null, 2);
+        try {
+            await navigator.clipboard.writeText(text);
+            toast('Debug logs copied to clipboard', 'success');
+        } catch (_) {
+            // Fallback
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            toast('Debug logs copied to clipboard', 'success');
+        }
+    },
+
+    async exportToFile() {
+        const minutes = parseInt($('#debug-time-range').value) || 15;
+        const data = await this.exportLogs(minutes);
+        const text = JSON.stringify(data, null, 2);
+        const blob = new Blob([text], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        a.download = `fortiwan-e-debug-${timestamp}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        toast('Debug logs exported', 'success');
+    },
+};
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
 
 // State
 const state = {
@@ -78,6 +232,27 @@ function setupEventListeners() {
     });
     $('#btn-use-custom').addEventListener('click', handleUseCustomStudio);
     $('#btn-delete-credentials').addEventListener('click', handleDeleteCredentials);
+
+    // Debug panel
+    $('#btn-debug').addEventListener('click', () => {
+        const panel = $('#debug-panel');
+        panel.classList.toggle('hidden');
+        if (!panel.classList.contains('hidden')) {
+            DebugLog.renderDebugPanel();
+        }
+    });
+    $('#btn-debug-close').addEventListener('click', () => {
+        $('#debug-panel').classList.add('hidden');
+    });
+    $('#btn-debug-copy').addEventListener('click', () => DebugLog.copyToClipboard());
+    $('#btn-debug-export').addEventListener('click', () => DebugLog.exportToFile());
+    $('#btn-debug-clear').addEventListener('click', async () => {
+        DebugLog.entries = [];
+        try { await API.clearDebugLogs(); } catch (_) {}
+        DebugLog.renderDebugPanel();
+        toast('Debug logs cleared', 'success');
+    });
+    $('#debug-time-range').addEventListener('change', () => DebugLog.renderDebugPanel());
 
     // Mode toggle
     const modeSwitch = $('#mode-switch');
@@ -323,11 +498,13 @@ function setConnected(val) {
         if (state.mode !== 'demo') {
             $('#fabric-panel').classList.remove('hidden');
         }
+        DebugLog.add('info', 'connection', `Connected to ${$('#fs-host').value}`);
     } else {
         badge.className = 'badge badge-disconnected';
         text.textContent = 'Disconnected';
         $('#btn-connect').classList.remove('hidden');
         $('#btn-disconnect').classList.add('hidden');
+        DebugLog.add('info', 'connection', 'Disconnected');
     }
 }
 
@@ -951,6 +1128,9 @@ function addLog(msg, type = '') {
     entry.innerHTML = `<span class="log-time">${now}</span><span class="log-msg ${type}">${msg}</span>`;
     container.prepend(entry);
     while (container.children.length > 50) container.removeChild(container.lastChild);
+    // Also add to debug log
+    const level = type === 'error' ? 'error' : type === 'success' ? 'info' : 'info';
+    DebugLog.add(level, 'activity', msg);
 }
 
 // --- Toast ---

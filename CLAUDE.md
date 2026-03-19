@@ -30,12 +30,14 @@ There are no tests, linters, or build steps configured in this project.
 - `build_tc_commands()` / `_netem_params()` — generates Linux `tc netem`/`tbf` qdisc commands from WAN parameter dicts
 - `_extract_devices()` / `_make_port()` — parses Fabric Studio topology API responses into device/port objects
 - REST API routes under `/api/` — connect, disconnect, list fabrics, get topology, get ports, apply/clear WAN rules, presets, status, debug
+- `debug_log()` — in-memory debug log buffer (`DEBUG_LOG_BUFFER`, deque of 2000 entries) with structured entries (timestamp, level, category, message, details)
+- `/api/debug/logs` — GET returns debug logs filtered by `?minutes=N`, DELETE clears the buffer
 - Session-based API client caching via global `api_clients` dict keyed by Flask session ID
 
 **Frontend** (vanilla JS, no build tooling):
-- `templates/index.html` — single-page layout with 5 panels (connection, fabric selection, topology, WAN controls, activity log)
-- `static/js/app.js` (~600 lines) — API module, state management, topology rendering, WAN parameter sliders, preset application, demo mode logic
-- `static/css/style.css` (~530 lines) — dark theme with Fortinet red accent, CSS custom properties
+- `templates/index.html` — single-page layout with 5 panels (connection, fabric selection, topology, WAN controls, activity log) + debug panel overlay
+- `static/js/app.js` (~1100 lines) — API module, `DebugLog` system, state management, topology rendering, WAN parameter sliders, preset application, demo mode logic
+- `static/css/style.css` (~850 lines) — dark theme with Fortinet red accent, CSS custom properties, debug panel styles
 
 **Key data flow:** Browser → Flask API → `FabricStudioAPI` → Fabric Studio REST API → Router `tc` rules
 
@@ -79,6 +81,34 @@ Key constants in `app.js`:
 - `getDemoPortLabel(portName)` — returns the display label for a port (passthrough in advanced mode)
 - `getDemoDeviceIcon(deviceName)` — returns inline SVG icon (server rack for HUB, office building for BR)
 - `applyDemoConnectionMode(isDemoMode)` — locks/unlocks the connection panel fields based on mode
+
+## Debug Console
+
+The app includes a built-in debug console accessible via the **Debug** button in the header. It captures detailed logs from both frontend and backend for troubleshooting.
+
+**Backend** (`app.py`):
+- `debug_log(level, category, message, details)` — adds structured entries to `DEBUG_LOG_BUFFER` (deque, max 2000 entries)
+- All `FabricStudioAPI` methods (`get`, `post`, `patch`, `login`) log requests, responses, and errors
+- Connect/disconnect and TC apply/clear routes log key operations
+- `GET /api/debug/logs?minutes=N` — returns logs within the specified time range
+- `DELETE /api/debug/logs` — clears the backend log buffer
+
+**Frontend** (`app.js`):
+- `DebugLog` object — manages frontend log entries (max 5000) with `add()`, `getFilteredLogs()`, `renderDebugPanel()`
+- All `API.request()` calls are automatically logged with method, URL, status, and duration
+- `addLog()` (activity log) entries are also captured in the debug log
+- Connection state changes are logged
+
+**Debug Panel UI**:
+- Fixed panel at bottom of viewport (45vh), toggled via header Debug button
+- Time range filter: 5 min, 15 min (default), 1 hour, 4 hours, 1 day
+- **Copy** button — copies all filtered logs (frontend + backend + app state) as JSON to clipboard
+- **Export** button — downloads a `.json` file with logs, app state snapshot, and user agent
+- Each log entry shows: timestamp, source badge (FE/BE), category, level, message, and expandable details
+- Color-coded levels: blue (info), gray (debug), yellow (warn), red (error)
+- Error and warn entries have colored left border for visibility
+
+**Disconnect button** is located in the header next to the connection status badge (not in the connection form).
 
 ## Versioning
 

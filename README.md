@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white" alt="Python 3.11"/>
   <img src="https://img.shields.io/badge/flask-3.1-000000?logo=flask&logoColor=white" alt="Flask 3.1"/>
   <img src="https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white" alt="Docker Ready"/>
-  <img src="https://img.shields.io/badge/version-1.2.0-da291c" alt="Version 1.2.0"/>
+  <img src="https://img.shields.io/badge/version-1.4.0-da291c" alt="Version 1.4.0"/>
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License MIT"/>
 </p>
 
@@ -42,6 +42,7 @@ FortiWAN-E runs as a **standalone web application** (on a separate machine, VM, 
 | **Credential Storage** | Securely save login credentials per studio |
 | **Live Activity Log** | Real-time feed of all operations and API calls |
 | **Multi-Device Support** | Control routers, switches, and VMs in your fabric |
+| **Debug Console** | Built-in debug panel with frontend + backend logs, time range filtering, copy-to-clipboard, and JSON export for troubleshooting |
 
 ## WAN Parameters
 

@@ -2,7 +2,11 @@
 """FortiWAN-E - Web-based WAN Emulator for Fabric Studio SD-WAN demos."""
 
 import json
+import logging
 import os
+import time
+from collections import deque
+from datetime import datetime, timezone
 import urllib3
 from flask import Flask, render_template, request, jsonify, session
 from flask_cors import CORS
@@ -10,11 +14,37 @@ import requests as http_requests
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.4.0"
 
 app = Flask(__name__)
 app.secret_key = "fortiwane-secret-key-change-in-production"
 CORS(app)
+
+# --- Debug Log Buffer ---
+# Stores the last 2000 debug log entries in memory
+DEBUG_LOG_BUFFER = deque(maxlen=2000)
+
+
+def debug_log(level, category, message, details=None):
+    """Add an entry to the in-memory debug log buffer.
+
+    Args:
+        level: 'info', 'warn', 'error', 'debug'
+        category: e.g. 'api', 'auth', 'tc', 'session', 'connection'
+        message: Human-readable message
+        details: Optional dict with extra context (request/response data, etc.)
+    """
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "epoch": time.time(),
+        "level": level,
+        "category": category,
+        "message": message,
+    }
+    if details:
+        entry["details"] = details
+    DEBUG_LOG_BUFFER.append(entry)
+
 
 # Predefined Fabric Studio instances
 PREDEFINED_STUDIOS = [
@@ -68,6 +98,7 @@ class FabricStudioAPI:
 
     def login(self):
         """Authenticate and obtain session + CSRF tokens."""
+        debug_log("info", "auth", f"Attempting login to {self.base_url}", {"username": self.username})
         self.session.get(f"{self.base_url}/api/v1/session/check")
         self._update_csrf()
         resp = self.session.post(
@@ -78,8 +109,10 @@ class FabricStudioAPI:
         resp.raise_for_status()
         data = resp.json()
         if data.get("status") == "error":
+            debug_log("error", "auth", f"Login failed to {self.base_url}", {"errors": data.get("errors", {})})
             raise Exception(f"Login failed: {data.get('errors', {})}")
         self._update_csrf()
+        debug_log("info", "auth", f"Login successful to {self.base_url}", {"csrf_token_present": bool(self.csrf_token)})
         return data
 
     def _update_csrf(self):
@@ -100,33 +133,48 @@ class FabricStudioAPI:
 
     def get(self, endpoint, params=None):
         """GET request to API. params can be a list of tuples for repeated keys."""
-        resp = self.session.get(
-            f"{self.base_url}/api/v1/{endpoint}",
-            params=params,
-            headers=self._headers(),
-        )
-        resp.raise_for_status()
-        return resp.json()
+        url = f"{self.base_url}/api/v1/{endpoint}"
+        debug_log("debug", "api", f"GET {endpoint}", {"url": url, "params": params})
+        try:
+            resp = self.session.get(url, params=params, headers=self._headers())
+            resp.raise_for_status()
+            data = resp.json()
+            debug_log("debug", "api", f"GET {endpoint} -> {resp.status_code}", {
+                "status_code": resp.status_code,
+                "response_keys": list(data.keys()) if isinstance(data, dict) else type(data).__name__,
+            })
+            return data
+        except Exception as e:
+            debug_log("error", "api", f"GET {endpoint} failed: {e}", {"url": url, "params": params})
+            raise
 
     def post(self, endpoint, data=None):
         """POST request to API."""
-        resp = self.session.post(
-            f"{self.base_url}/api/v1/{endpoint}",
-            json=data,
-            headers=self._headers(),
-        )
-        resp.raise_for_status()
-        return resp.json()
+        url = f"{self.base_url}/api/v1/{endpoint}"
+        debug_log("debug", "api", f"POST {endpoint}", {"url": url, "request_data": data})
+        try:
+            resp = self.session.post(url, json=data, headers=self._headers())
+            resp.raise_for_status()
+            result = resp.json()
+            debug_log("debug", "api", f"POST {endpoint} -> {resp.status_code}", {"status_code": resp.status_code})
+            return result
+        except Exception as e:
+            debug_log("error", "api", f"POST {endpoint} failed: {e}", {"url": url})
+            raise
 
     def patch(self, endpoint, data=None):
         """PATCH request to API."""
-        resp = self.session.patch(
-            f"{self.base_url}/api/v1/{endpoint}",
-            json=data,
-            headers=self._headers(),
-        )
-        resp.raise_for_status()
-        return resp.json()
+        url = f"{self.base_url}/api/v1/{endpoint}"
+        debug_log("debug", "api", f"PATCH {endpoint}", {"url": url, "request_data": data})
+        try:
+            resp = self.session.patch(url, json=data, headers=self._headers())
+            resp.raise_for_status()
+            result = resp.json()
+            debug_log("debug", "api", f"PATCH {endpoint} -> {resp.status_code}", {"status_code": resp.status_code})
+            return result
+        except Exception as e:
+            debug_log("error", "api", f"PATCH {endpoint} failed: {e}", {"url": url})
+            raise
 
     def get_fabrics(self):
         """List all fabrics."""
@@ -463,6 +511,7 @@ def connect():
         return jsonify({"status": "error", "message": "Host is required"}), 400
 
     try:
+        debug_log("info", "connection", f"Connecting to {host}", {"username": username})
         client = FabricStudioAPI(host, username, password)
         client.login()
         key = f"{host}:{username}"
@@ -472,8 +521,10 @@ def connect():
             "username": username,
             "password": password,
         }
+        debug_log("info", "connection", f"Successfully connected to {host}")
         return jsonify({"status": "ok", "message": "Connected to Fabric Studio"})
     except Exception as e:
+        debug_log("error", "connection", f"Connection to {host} failed: {e}", {"username": username})
         return jsonify({"status": "error", "message": str(e)}), 400
 
 
@@ -890,6 +941,11 @@ def apply_wan_rules():
     if not fabric_id:
         return jsonify({"status": "error", "message": "fabric_id is required"}), 400
 
+    debug_log("info", "tc", f"Applying WAN rules to {device_type} {device_id}", {
+        "fabric_id": fabric_id, "interfaces": list(interfaces.keys()),
+        "port_ids": port_ids, "tc_ids": tc_ids,
+    })
+
     results = {}
     errors = []
     for iface_name, params in interfaces.items():
@@ -898,6 +954,7 @@ def apply_wan_rules():
 
         if not port_id:
             errors.append(f"{iface_name}: no port_id provided")
+            debug_log("warn", "tc", f"Apply skipped {iface_name}: no port_id")
             continue
 
         try:
@@ -908,17 +965,25 @@ def apply_wan_rules():
                 tc_id = tc_obj.get("id", tc_id_hint)
             if not tc_id:
                 errors.append(f"{iface_name}: no traffic control object found for port {port_id}")
+                debug_log("error", "tc", f"No TC object for {iface_name} port {port_id}")
                 continue
 
             field_names = _resolve_tc_field_names(tc_obj)
             tc_params = _build_tc_params(params, field_names)
+            debug_log("debug", "tc", f"Updating TC {tc_id} for {iface_name}", {
+                "tc_params": tc_params, "field_names": field_names, "ui_params": params,
+            })
             update_result = _apply_tc_update(client, tc_id, tc_params, fabric_id, device_id, port_id)
             iface_result = {"tc_id": tc_id, "status": "ok", "applied_params": params}
             if update_result.get("sync_error"):
                 iface_result["sync_error"] = update_result["sync_error"]
+                debug_log("warn", "tc", f"Sync error on {iface_name}: {update_result['sync_error']}")
+            else:
+                debug_log("info", "tc", f"TC {tc_id} applied and synced for {iface_name}")
             results[iface_name] = iface_result
         except Exception as e:
             errors.append(f"{iface_name}: {str(e)}")
+            debug_log("error", "tc", f"Apply failed for {iface_name}: {e}", {"port_id": port_id})
 
     if errors and not results:
         return jsonify({"status": "error", "message": "; ".join(errors)}), 500
@@ -1089,6 +1154,26 @@ def delete_credentials(host):
     """Delete saved credentials for a host."""
     _delete_saved_credentials(host)
     return jsonify({"status": "ok", "message": f"Credentials deleted for {host}"})
+
+
+@app.route("/api/debug/logs", methods=["GET"])
+def get_debug_logs():
+    """Get debug logs filtered by time range.
+
+    Query params:
+        minutes: Number of minutes to look back (default 15)
+    """
+    minutes = int(request.args.get("minutes", 15))
+    cutoff = time.time() - (minutes * 60)
+    logs = [e for e in DEBUG_LOG_BUFFER if e.get("epoch", 0) >= cutoff]
+    return jsonify({"status": "ok", "logs": logs, "total_buffered": len(DEBUG_LOG_BUFFER)})
+
+
+@app.route("/api/debug/logs", methods=["DELETE"])
+def clear_debug_logs():
+    """Clear the debug log buffer."""
+    DEBUG_LOG_BUFFER.clear()
+    return jsonify({"status": "ok", "message": "Debug logs cleared"})
 
 
 @app.route("/api/version", methods=["GET"])
