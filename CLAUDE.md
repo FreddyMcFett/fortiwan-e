@@ -114,6 +114,15 @@ The app includes a built-in debug console accessible via the **Debug** button in
 
 **Disconnect button** is located in the header next to the connection status badge (not in the connection form).
 
+## Clear All
+
+The **Clear All** button appears in the WAN Emulation panel header (next to the panel title). It clears every WAN rule from every device in the loaded fabric topology with a single click. Works in both Demo and Advanced modes:
+
+- In **Demo Mode**, it iterates only over `DEMO_ALLOWED_DEVICES` and their demo-filtered ports (port2/port3)
+- In **Advanced Mode**, it iterates over all devices (routers, switches, VMs) and all their ports
+
+Implementation: `handleClearAll()` in `app.js` loops through `state.topology` devices, builds the full interfaces/port_ids/tc_ids payload per device, and calls `API.clear()` for each. It also resets `state.appliedParams` for cleared devices and re-renders the emulator panel if the currently selected device was affected.
+
 ## Versioning
 
 FortiWAN-E follows [Semantic Versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`):
