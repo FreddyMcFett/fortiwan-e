@@ -694,43 +694,7 @@ body {
     to { opacity: 0; }
 }
 
-/* Debug Panel */
-.debug-panel {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 45vh;
-    background: var(--bg-secondary);
-    border-top: 2px solid var(--accent);
-    z-index: 200;
-    display: flex;
-    flex-direction: column;
-    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
-}
-
-.debug-panel-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--border);
-    background: var(--bg-primary);
-    flex-shrink: 0;
-}
-
-.debug-panel-header h2 {
-    font-size: 14px;
-    font-weight: 700;
-    color: var(--accent);
-}
-
-.debug-panel-controls {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
+/* Debug Panel — shared styles used by standalone debug page */
 .debug-select {
     padding: 4px 28px 4px 8px;
     background: var(--bg-tertiary);
@@ -743,11 +707,6 @@ body {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' stroke='%239ca3b8' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 8px center;
-}
-
-.debug-panel-body {
-    flex: 1;
-    overflow: hidden;
 }
 
 .debug-entries {

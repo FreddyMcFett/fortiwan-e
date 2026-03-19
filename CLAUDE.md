@@ -99,12 +99,16 @@ The app includes a built-in debug console accessible via the **Debug** button in
 - `addLog()` (activity log) entries are also captured in the debug log
 - Connection state changes are logged
 
-**Debug Panel UI**:
-- Fixed panel at bottom of viewport (45vh), toggled via header Debug button
+**Debug Console UI** (`/debug` route, `templates/debug.html`):
+- Opens in a **separate browser tab** via the header Debug button (not an inline overlay)
+- Standalone page at `/debug` with its own self-contained JS — no dependency on `app.js`
+- Fetches backend logs only (via `GET /api/debug/logs`) — no frontend log mixing or feedback loops
 - Time range filter: 5 min, 15 min (default), 1 hour, 4 hours, 1 day
-- **Copy** button — copies all filtered logs (frontend + backend + app state) as JSON to clipboard
-- **Export** button — downloads a `.json` file with logs, app state snapshot, and user agent
-- Each log entry shows: timestamp, source badge (FE/BE), category, level, message, and expandable details
+- **Refresh** button — manually re-fetches logs (no auto-polling to avoid noise)
+- **Copy** button — copies all filtered logs as JSON to clipboard
+- **Export** button — downloads a `.json` file with logs and user agent
+- Status bar shows entry count and last refresh time
+- Each log entry shows: timestamp, source badge (BE), category, level, message, and expandable details
 - Color-coded levels: blue (info), gray (debug), yellow (warn), red (error)
 - Error and warn entries have colored left border for visibility
 

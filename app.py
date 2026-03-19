@@ -14,7 +14,7 @@ import requests as http_requests
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.5.0"
 
 app = Flask(__name__)
 app.secret_key = "fortiwane-secret-key-change-in-production"
@@ -168,7 +168,17 @@ class FabricStudioAPI:
         debug_log("debug", "api", f"PATCH {endpoint}", {"url": url, "request_data": data})
         try:
             resp = self.session.patch(url, json=data, headers=self._headers())
-            resp.raise_for_status()
+            if not resp.ok:
+                # Capture the error response body before raising
+                try:
+                    error_body = resp.json()
+                except Exception:
+                    error_body = resp.text[:500] if resp.text else None
+                debug_log("error", "api", f"PATCH {endpoint} -> {resp.status_code}", {
+                    "url": url, "status_code": resp.status_code,
+                    "error_response": error_body, "request_data": data,
+                })
+                resp.raise_for_status()
             result = resp.json()
             debug_log("debug", "api", f"PATCH {endpoint} -> {resp.status_code}", {"status_code": resp.status_code})
             return result
@@ -307,8 +317,15 @@ class FabricStudioAPI:
             result = self.get(f"model/fabric/{fabric_id}/device/{device_id}/port/{port_id}/tc")
             obj = result.get("object")
             if isinstance(obj, dict) and "id" in obj:
+                debug_log("debug", "tc", f"TC object for port {port_id}", {
+                    "tc_fields": list(obj.keys()), "tc_object": obj,
+                })
                 return obj
             if isinstance(obj, list) and obj:
+                debug_log("debug", "tc", f"TC object for port {port_id}", {
+                    "tc_fields": list(obj[0].keys()) if isinstance(obj[0], dict) else None,
+                    "tc_object": obj[0],
+                })
                 return obj[0]
         except Exception:
             pass
@@ -322,10 +339,9 @@ class FabricStudioAPI:
         """
         obj = {"id": tc_id, "__model": "model.trafficcontrol"}
         obj.update(data)
-        update_fields = [",".join(data.keys())]
         payload = {
             "object": obj,
-            "update_fields": update_fields,
+            "update_fields": list(data.keys()),
             "related_fields": [],
         }
         return self.patch(
@@ -497,6 +513,12 @@ WAN_PRESETS = {
 @app.route("/")
 def index():
     return render_template("index.html", version=APP_VERSION)
+
+
+@app.route("/debug")
+def debug_page():
+    """Standalone debug console page (opened in a new tab)."""
+    return render_template("debug.html", version=APP_VERSION)
 
 
 @app.route("/api/connect", methods=["POST"])
@@ -1001,11 +1023,18 @@ def _apply_tc_update(client, tc_id, tc_params, fabric_id, device_id, port_id):
 
     *tc_params* should already be built with the correct API field names
     (see ``_resolve_tc_field_names``).
+
+    If the bulk update fails (e.g. 400 Bad Request), retries by sending
+    fields individually and tries alternative field names for any that fail.
     """
-    result = client.update_tc(tc_id, tc_params, fabric_id, device_id, port_id)
+    result = None
+    try:
+        result = client.update_tc(tc_id, tc_params, fabric_id, device_id, port_id)
+    except Exception as bulk_err:
+        debug_log("warn", "tc", f"Bulk TC update failed, retrying field-by-field: {bulk_err}")
+        result = _apply_tc_field_by_field(client, tc_id, tc_params, fabric_id, device_id, port_id)
 
     # Sync runtime from the updated model so changes take effect immediately.
-    # Use runtime/tc/{id}:sync (matches Fabric Studio's own sync command).
     sync_error = None
     try:
         client.sync_tc(tc_id)
@@ -1020,6 +1049,43 @@ def _apply_tc_update(client, tc_id, tc_params, fabric_id, device_id, port_id):
                 sync_error = f"sync failed: {e}; force failed: {e2}"
 
     return {"model_result": result, "sync_error": sync_error}
+
+
+# Alternative field names to try when a TC field update fails.
+# Keyed by canonical field name; each list is tried in order.
+_TC_FIELD_ALTERNATIVES = {
+    "loss": ["packetloss", "packet_loss", "loss_percent", "loss_pct"],
+    "corrupt": ["corruption", "corrupt_percent"],
+    "duplicate": ["duplication", "duplicate_percent"],
+    "reorder": ["reordering", "reorder_percent"],
+    "bandwidth": ["rate", "bandwidth_bps", "bw"],
+    "delay": ["delay_ms"],
+    "jitter": ["jitter_ms"],
+}
+
+
+def _apply_tc_field_by_field(client, tc_id, tc_params, fabric_id, device_id, port_id):
+    """Send each TC field individually, trying alternatives for any that fail."""
+    last_result = None
+    for field_name, value in tc_params.items():
+        try:
+            last_result = client.update_tc(tc_id, {field_name: value}, fabric_id, device_id, port_id)
+            debug_log("debug", "tc", f"Field '{field_name}={value}' updated OK")
+        except Exception:
+            debug_log("warn", "tc", f"Field '{field_name}' rejected, trying alternatives")
+            alt_names = _TC_FIELD_ALTERNATIVES.get(field_name, [])
+            applied = False
+            for alt in alt_names:
+                try:
+                    last_result = client.update_tc(tc_id, {alt: value}, fabric_id, device_id, port_id)
+                    debug_log("info", "tc", f"Alternative field name '{alt}' worked for '{field_name}'")
+                    applied = True
+                    break
+                except Exception:
+                    continue
+            if not applied:
+                debug_log("error", "tc", f"Could not apply field '{field_name}={value}' — all alternatives failed")
+    return last_result
 
 
 @app.route("/api/clear", methods=["POST"])

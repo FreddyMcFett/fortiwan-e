@@ -27,7 +27,7 @@
                 <span class="mode-label" id="mode-label-advanced">Advanced</span>
             </div>
             <div class="header-actions">
-                <button type="button" class="btn btn-sm btn-secondary" id="btn-debug" title="Open Debug Console">Debug</button>
+                <button type="button" class="btn btn-sm btn-secondary" id="btn-debug" title="Open Debug Console" onclick="window.open('/debug', '_blank')">Debug</button>
                 <div id="connection-badge" class="badge badge-disconnected">
                     <span class="badge-dot"></span>
                     <span id="connection-text">Disconnected</span>
@@ -139,29 +139,6 @@
             </div>
         </section>
     </main>
-
-    <!-- Debug Panel (overlay) -->
-    <div id="debug-panel" class="debug-panel hidden">
-        <div class="debug-panel-header">
-            <h2>Debug Console</h2>
-            <div class="debug-panel-controls">
-                <select id="debug-time-range" class="debug-select">
-                    <option value="5">Last 5 minutes</option>
-                    <option value="15" selected>Last 15 minutes</option>
-                    <option value="60">Last 1 hour</option>
-                    <option value="240">Last 4 hours</option>
-                    <option value="1440">Last 1 day</option>
-                </select>
-                <button class="btn btn-sm btn-secondary" id="btn-debug-copy" title="Copy to clipboard">Copy</button>
-                <button class="btn btn-sm btn-secondary" id="btn-debug-export" title="Export to file">Export</button>
-                <button class="btn btn-sm btn-secondary" id="btn-debug-clear">Clear</button>
-                <button class="btn btn-sm btn-secondary" id="btn-debug-close">Close</button>
-            </div>
-        </div>
-        <div class="debug-panel-body">
-            <div id="debug-entries" class="debug-entries"></div>
-        </div>
-    </div>
 
     <footer class="footer">
         <span>FortiWAN-E v{{ version }} — Fortinet SD-WAN Demo Tool</span>
