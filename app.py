@@ -14,7 +14,7 @@ import requests as http_requests
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-APP_VERSION = "1.7.1"
+APP_VERSION = "1.8.0"
 
 app = Flask(__name__)
 app.secret_key = "fortiwane-secret-key-change-in-production"
@@ -48,7 +48,7 @@ def debug_log(level, category, message, details=None):
 
 # Predefined Fabric Studio instances
 PREDEFINED_STUDIOS = [
-    {"label": "Studio 01", "host": "studio-01.mp-cloud.lab"},
+    {"label": "Fabric Studio", "host": "10.254.254.254"},
     {"label": "Studio 02", "host": "studio-02.mp-cloud.lab"},
 ]
 
@@ -1252,4 +1252,4 @@ def get_version():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=80, debug=True)
