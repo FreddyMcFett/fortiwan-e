@@ -19,7 +19,7 @@ docker compose up -d
 python app.py
 ```
 
-The app serves on port 5000.
+The app serves on port 80.
 
 There are no tests, linters, or build steps configured in this project.
 
@@ -54,8 +54,8 @@ The `FabricStudioAPI` client handles multiple CSRF token cookie patterns and tri
 The app has two UI modes, toggled via a switch in the header. All demo mode logic is **frontend-only** — the backend has no concept of modes.
 
 **Demo Mode** (default):
-- Connection panel is locked down: studio instance is shown as static text (not a dropdown), host and username are readonly; only the password field is editable
-- Only shows **Studio 01** (`studio-01.mp-cloud.lab`) and auto-selects it; "Add Studio" button is hidden
+- Connection panel fields (host, username) are pre-filled but editable; studio instance is shown as static text (not a dropdown)
+- Only shows **Fabric Studio** (`10.254.254.254`) and auto-selects it; "Add Studio" button is hidden
 - Automatically selects and loads the **sd-wan 7.6** fabric (fabric selection UI is hidden)
 - Filters the topology to only show: **FGT-HUB1**, **FGT-HUB2**, **FGT-BR1**, **FGT-BR2**, **FGT-BR3**
 - Filters ports to **port2** and **port3** only
@@ -89,8 +89,8 @@ Key functions in `app.js`:
 
 Key constants in `app.js`:
 - `DEMO_FABRIC_NAME` — fabric name to auto-load (`'sd-wan-7.6'`); matching normalizes hyphens, spaces, dots, and underscores
-- `DEMO_STUDIO_HOST` — studio host to show in demo mode (`'studio-01.mp-cloud.lab'`)
-- `DEMO_STUDIO_LABEL` — display label for the demo studio (`'Studio 01'`)
+- `DEMO_STUDIO_HOST` — studio host to show in demo mode (`'10.254.254.254'`)
+- `DEMO_STUDIO_LABEL` — display label for the demo studio (`'Fabric Studio'`)
 - `DEMO_USERNAME` — hardcoded username in demo mode (`'admin'`)
 - `DEMO_ALLOWED_DEVICES` — array of device names shown in demo mode
 - `DEMO_PORT_LABELS` — mapping of port names to display labels (`{ port2: 'ISP-A', port3: 'ISP-B' }`)

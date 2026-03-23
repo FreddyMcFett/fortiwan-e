@@ -209,11 +209,11 @@ function applyDemoConnectionMode(isDemoMode) {
         }
         staticLabel.classList.remove('hidden');
 
-        // Hardcode host and username, make them readonly
+        // Set default host and username, keep editable
         hostInput.value = DEMO_STUDIO_HOST;
-        hostInput.readOnly = true;
+        hostInput.readOnly = false;
         userInput.value = DEMO_USERNAME;
-        userInput.readOnly = true;
+        userInput.readOnly = false;
     } else {
         // Show the studio selector
         studioSelector.classList.remove('hidden');
@@ -419,8 +419,8 @@ async function checkConnection() {
 
 // Demo mode constants
 const DEMO_FABRIC_NAME = 'sd-wan-7.6';
-const DEMO_STUDIO_HOST = 'studio-01.mp-cloud.lab';
-const DEMO_STUDIO_LABEL = 'Studio 01';
+const DEMO_STUDIO_HOST = '10.254.254.254';
+const DEMO_STUDIO_LABEL = 'Fabric Studio';
 const DEMO_USERNAME = 'admin';
 const DEMO_ALLOWED_DEVICES = ['FGT-HUB1', 'FGT-HUB2', 'FGT-BR1', 'FGT-BR2', 'FGT-BR3'];
 const DEMO_PORT_LABELS = { 'port2': 'ISP-A', 'port3': 'ISP-B' };

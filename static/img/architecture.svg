@@ -89,7 +89,7 @@
   <rect x="622" y="97" width="236" height="116" rx="9" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
   <text x="680" y="128" fill="#ffffff" font-size="16" font-weight="700">FortiWAN-E</text>
   <text x="668" y="150" fill="rgba(255,255,255,0.7)" font-size="11">Debian / Ubuntu / Docker</text>
-  <text x="693" y="170" fill="rgba(255,255,255,0.5)" font-size="11">http://&lt;ip&gt;:5000</text>
+  <text x="693" y="170" fill="rgba(255,255,255,0.5)" font-size="11">http://&lt;ip&gt;</text>
   <!-- Small shield icon -->
   <path d="M654 118 L664 113 L674 118 C674 118 675 128 664 134 C653 128 654 118 654 118Z" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="1.2"/>
 
@@ -114,7 +114,7 @@
   <!-- Admin -> FortiWAN-E (Browser) -->
   <line x1="740" y1="270" x2="740" y2="217" stroke="#58a6ff" stroke-width="1.8" marker-end="url(#arrow)"/>
   <rect x="748" y="233" width="62" height="16" rx="4" fill="#0d1117" stroke="#30363d" stroke-width="0.8"/>
-  <text x="754" y="245" fill="#58a6ff" font-size="9" font-weight="600">HTTP :5000</text>
+  <text x="754" y="245" fill="#58a6ff" font-size="9" font-weight="600">HTTP :80</text>
 
   <!-- ==================== WAN EMULATION CAPABILITIES ==================== -->
   <rect x="40" y="395" width="820" height="80" rx="8" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
