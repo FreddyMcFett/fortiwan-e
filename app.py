@@ -14,7 +14,7 @@ import requests as http_requests
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-APP_VERSION = "1.8.0"
+APP_VERSION = "1.9.0"
 
 app = Flask(__name__)
 app.secret_key = "fortiwane-secret-key-change-in-production"
@@ -1251,5 +1251,23 @@ def get_version():
     return jsonify({"status": "ok", "version": APP_VERSION})
 
 
+def _ensure_ssl_cert(cert_path="cert.pem", key_path="key.pem"):
+    """Generate a self-signed SSL certificate if one doesn't exist."""
+    if os.path.exists(cert_path) and os.path.exists(key_path):
+        return cert_path, key_path
+
+    import subprocess
+    print("[*] Generating self-signed SSL certificate...")
+    subprocess.run([
+        "openssl", "req", "-x509", "-newkey", "rsa:2048",
+        "-keyout", key_path, "-out", cert_path,
+        "-days", "365", "-nodes",
+        "-subj", "/CN=FortiWAN-E/O=FortiWAN-E/C=US"
+    ], check=True, capture_output=True)
+    print("[*] SSL certificate generated.")
+    return cert_path, key_path
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=80, debug=True)
+    cert, key = _ensure_ssl_cert()
+    app.run(host="0.0.0.0", port=443, debug=True, ssl_context=(cert, key))
