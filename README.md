@@ -69,7 +69,7 @@ cd fortiwan-e
 docker compose up -d
 ```
 
-> The app will be available at `http://<your-ip>`
+> The app will be available at `https://<your-ip>` (self-signed certificate)
 
 <details>
 <summary><strong>Container management commands</strong></summary>
@@ -90,7 +90,7 @@ git pull && docker compose up -d --build   # Update
 git clone https://github.com/FreddyMcFett/fortiwan-e.git
 cd fortiwan-e
 docker build -t fortiwane .
-docker run -d --name fortiwane -p 80:80 --restart unless-stopped fortiwane
+docker run -d --name fortiwane -p 443:443 --restart unless-stopped fortiwane
 ```
 
 ### Option 3: Direct Run (Debian / Ubuntu)

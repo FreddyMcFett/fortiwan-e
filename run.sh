@@ -59,8 +59,8 @@ IP_ADDR=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
 
 echo ""
 echo "========================================="
-echo "  FortiWAN-E running on port 80"
-echo "  Open http://${IP_ADDR}"
+echo "  FortiWAN-E running on port 443 (HTTPS)"
+echo "  Open https://${IP_ADDR}"
 echo "========================================="
 echo ""
 

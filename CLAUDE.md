@@ -19,7 +19,7 @@ docker compose up -d
 python app.py
 ```
 
-The app serves on port 80.
+The app serves on port 443 (HTTPS) with a self-signed SSL certificate. On first run, `app.py` auto-generates `cert.pem` and `key.pem` via OpenSSL if they don't already exist. To use your own certificate, place your `cert.pem` and `key.pem` files in the project root before starting.
 
 There are no tests, linters, or build steps configured in this project.
 

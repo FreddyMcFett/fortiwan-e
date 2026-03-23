@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 saved_credentials.json
+cert.pem
+key.pem
