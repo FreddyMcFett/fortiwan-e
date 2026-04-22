@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white" alt="Python 3.11"/>
   <img src="https://img.shields.io/badge/flask-3.1-000000?logo=flask&logoColor=white" alt="Flask 3.1"/>
   <img src="https://img.shields.io/badge/docker-ready-2496ED?logo=docker&logoColor=white" alt="Docker Ready"/>
-  <img src="https://img.shields.io/badge/version-1.7.0-da291c" alt="Version 1.7.0"/>
+  <img src="https://img.shields.io/badge/version-1.9.1-da291c" alt="Version 1.9.1"/>
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License MIT"/>
 </p>
 
