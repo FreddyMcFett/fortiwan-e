@@ -38,7 +38,7 @@ FortiWAN-E runs as a **standalone web application** (on a separate machine, VM, 
 | **8 Built-in Presets** | One-click profiles from Perfect Link to Degraded WAN |
 | **Per-Interface Control** | Apply different conditions to each router port independently |
 | **Clear All** | One-click button to clear every WAN rule from every device in the fabric topology |
-| **Demo Mode (SD-WAN)** | Locks to Studio 01, auto-loads sd-wan 7.6 fabric, shows only FGT-HUB/BR devices with custom icons and ISP-A/ISP-B ports |
+| **Demo Mode (SD-WAN)** | Locks to Fabric Studio, auto-loads sd-wan 7.6 fabric, shows only FGT-HUB/BR devices with custom icons and ISP-A/ISP-B ports |
 | **SD-WAN Scenarios** | 5 one-click scenario buttons in Demo Mode: DC1 Down, ISP-A/B Degraded, BR1 ISP-A Down, and Restore All |
 | **Advanced Mode** | Full access to all fabrics, devices, and ports |
 | **Topology View** | Visual device selector showing routers, switches, and VMs |
@@ -119,11 +119,12 @@ Demo Mode provides a streamlined SD-WAN 7.6 demo experience. Toggle it via the s
 
 **What Demo Mode does:**
 
-- **Connection** — Locks to Studio 01 (`studio-01.mp-cloud.lab`); host and username are read-only, only the password field is editable
+- **Connection** — The studio instance is shown as static text (**Fabric Studio**, `10.254.254.254`) instead of a dropdown; host and username are pre-filled but remain editable, and the "Add Studio" button is hidden
 - **Fabric** — Automatically selects and loads the **sd-wan 7.6** fabric (fabric selection UI is hidden)
 - **Devices** — Filters the topology to only show: **FGT-HUB1**, **FGT-HUB2**, **FGT-BR1**, **FGT-BR2**, **FGT-BR3**
-- **Ports** — Shows only **port2** and **port3**, renamed to **ISP-A** and **ISP-B** in the UI
-- **Icons** — Hub devices display a blue server rack icon; Branch devices display an orange office building icon
+- **Ports** — Shows only **port2** and **port3**, renamed to **ISP-A** and **ISP-B** in the UI (API calls still use the real port names)
+- **Icons** — Hub devices display a blue server rack icon; Branch devices display an orange office building icon, replacing the generic VM badge
+- **Labels** — Device type label ("VM") and port count are hidden; a **Hub** or **Branch** role label is shown instead
 - **Sliders** — Hides advanced sliders (corruption, duplicates, reorder)
 
 ### SD-WAN Scenarios
