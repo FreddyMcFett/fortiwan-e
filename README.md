@@ -4,6 +4,8 @@
 
 <h1 align="center">FortiWAN-E</h1>
 
+> **Disclaimer:** FortiWAN-E is an independent, community-developed tool and is **not** an official Fortinet product. It is not affiliated with, endorsed by, or supported by Fortinet, Inc. Use of this tool is at your own risk. "Fortinet", "FortiGate", "Fabric Studio", and related marks are trademarks of Fortinet, Inc.
+
 <p align="center">
   <strong>Web-based WAN Emulator for Fortinet SD-WAN demos on Fabric Studio</strong>
 </p>
